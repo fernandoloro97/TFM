@@ -1,11 +1,14 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# Instalar dependencias
-COPY src/composition_sp500/requirements.txt .
-RUN pip install -r requirements.txt
+# 1. Instalamos herramientas de sistema para evitar el error de "metadata"
+RUN yum install -y gcc-c++ libxml2-devel libxslt-devel
 
-# Copiar código
+# 2. Copiamos los requerimientos usando la ruta desde la raíz del repo
+COPY src/composition_sp500/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 3. Copiamos el script directamente a la raíz de la tarea de Lambda
 COPY src/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
 
-# Comando
-CMD [ "api.handler" ]
+# 4. El Handler: NOMBRE_ARCHIVO.FUNCION
+CMD [ "composition_sp500.handler" ]
