@@ -22,22 +22,31 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # --- PROCESO 1: CHANGES SP500 (SCRAPER) ---
-      - name: Build and Push Changes Scraper
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: update_changes_sp500 # <--- Tu repo ECR para el scraper
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/changes_sp500/Dockerfile .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      # # --- PROCESO 1: CHANGES SP500 (SCRAPER) ---
+      # - name: Build and Push Changes Scraper
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     ECR_REPOSITORY: update_changes_sp500 # <--- Tu repo ECR para el scraper
+      #   run: |
+      #     docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/changes_sp500/Dockerfile .
+      #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # --- PROCESO 2: COMPOSITION SP500 (HISTORIC) ---
-      - name: Build and Push Composition Historic
+      # # --- PROCESO 2: COMPOSITION SP500 (HISTORIC) ---
+      # - name: Build and Push Composition Historic
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     ECR_REPOSITORY: update_composition_sp500 # <--- Tu repo ECR para el histórico
+      #   run: |
+      #     docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/composition_sp500/Dockerfile .
+      #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # --- PROCESO 3: MORNINGSTAR UPDATER ---
+      - name: Build and Push Morningstar
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: update_composition_sp500 # <--- Tu repo ECR para el histórico
+          ECR_REPOSITORY: update_morningstar
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/composition_sp500/Dockerfile .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/morningstar/Dockerfile .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
      
