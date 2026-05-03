@@ -11,4 +11,3 @@ COPY src/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
 
 # El handler debe ser NOMBRE_ARCHIVO.handler
 CMD [ "composition_sp500.handler" ]
-

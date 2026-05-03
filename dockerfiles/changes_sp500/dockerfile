@@ -1,0 +1,13 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# 1. Copiamos el archivo de requerimientos específico para el scraping
+COPY src/changes_sp500/requirements.txt .
+
+# 2. Instalamos las librerías apuntando a la raíz de la Lambda
+RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+
+# 3. Copiamos el script del scraper
+COPY src/changes_sp500/changes_sp500.py ${LAMBDA_TASK_ROOT}
+
+# 4. El nombre aquí debe ser exacto al nombre del archivo .py
+CMD [ "changes_sp500.handler" ]

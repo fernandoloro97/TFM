@@ -1,4 +1,4 @@
-name: Deploy to ECR and Update Lambda
+name: Deploy Multiple Lambdas to ECR
 
 on:
   push:
@@ -16,23 +16,28 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1 # Asegúrate de que sea tu región
+          aws-region: us-east-1 # Ajusta a tu región
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag, and push image
+      # --- PROCESO 1: CHANGES SP500 (SCRAPER) ---
+      - name: Build and Push Changes Scraper
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: update_composition_sp500 # Tu nombre de ECR
-          IMAGE_TAG: sp500
+          ECR_REPOSITORY: update_changes_sp500 # <--- Tu repo ECR para el scraper
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f dockerfiles/composition_sp500/Dockerfile .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/changes_sp500/Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Update Lambda Function
+      # --- PROCESO 2: COMPOSITION SP500 (HISTORIC) ---
+      - name: Build and Push Composition Historic
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: update_composition_sp500 # <--- Tu repo ECR para el histórico
         run: |
-          aws lambda update-function-code \
-            --function-name TU_NOMBRE_DE_LAMBDA \
-            --image-uri ${{ steps.login-ecr.outputs.registry }}/historic_composition_sp500:latest
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/composition_sp500/Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+     

@@ -1,292 +1,73 @@
-import os
 import boto3
-import requests
-import re
 import pandas as pd
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 from datetime import datetime
-from dateutil import parser
-from boto3.dynamodb.conditions import Key
-
-# Configuración de AWS
-DYNAMODB_TABLE = "historic_composition_sp500"
-dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table(DYNAMODB_TABLE)
-
-BASE_URL = "https://press.spglobal.com/index.php?s=2429&l=100&year={year}&keywords=Join"
-ROOT = "https://press.spglobal.com/"
-
-
-def get_relevant_news(year):
-    url = BASE_URL.format(year=year)
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    records = []
-
-    for item in soup.select(".wd_item"):
-        title_tag = item.select_one(".wd_title a")
-        date_tag = item.select_one(".wd_date")
-
-        if not title_tag or not date_tag:
-            continue
-
-        title = title_tag.get_text(strip=True)
-        publish_date = date_tag.get_text(strip=True)
-        href = title_tag["href"]
-
-        #if "Set to Join S&P 500" in title:
-        if "Set to Join S&P 500" in title or "Set to S&P 500" in title:
-            full_url = urljoin(ROOT, href)
-            records.append({
-                "Publish Date": publish_date,
-                "Title": title,
-                "URL": full_url
-            })
-
-    return records
-
-def extract_company(title):
-    match = re.match(r"(.+?)\s+Set to Join", title)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-def collect_news(start_year=2020, end_year=2026):
-    all_records = []
-
-    for year in range(start_year, end_year + 1):
-        all_records.extend(get_relevant_news(year))
-
-    df_news = pd.DataFrame(all_records)
-
-    # Extraer empresa
-    df_news["Company"] = df_news["Title"].apply(extract_company)
-
-    # Convertir fecha
-    df_news["Publish Date"] = pd.to_datetime(df_news["Publish Date"])
-
-    # Ordenar por empresa y fecha
-    df_news = df_news.sort_values(["Company", "Publish Date"], ascending=[True, False])
-
-    # Quedarse con la noticia más reciente por empresa
-    df_news = df_news.drop_duplicates(subset="Company", keep="first")
-
-    return df_news.reset_index(drop=True)
-
-def extract_sp500_table_row(url):
-
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    table = soup.find("table")
-    if table is None:
-        return pd.DataFrame()
-
-    rows = []
-    current_date = None
-
-    for tr in table.find_all("tr"):
-        cells = tr.find_all("td")
-        if not cells:
-            continue
-
-        # Extraer texto limpio de cada celda
-        texts = []
-        for td in cells:
-            span = td.find("span", class_="prnews_span")
-            if span:
-                texts.append(span.get_text(strip=True))
-            else:
-                texts.append(td.get_text(strip=True))
-
-        # Saltar filas vacías
-        if all(t == "" for t in texts):
-            continue
-
-        # Detectar encabezado
-        if "Effective Date" in texts[0]:
-            continue
-
-        # Detectar fecha (solo aparece en la primera fila del bloque)
-        if texts[0] != "":
-            current_date = texts[0]
-
-        # Caso típico: 7 columnas por culpa del colspan
-        if len(texts) == 7:
-            _, index_name, action, company_name, ticker, sector = texts[0], texts[1], texts[2], texts[4], texts[5], texts[6]
-
-        # Caso normal: 6 columnas
-        elif len(texts) == 6:
-            _, index_name, action, company_name, ticker, sector = texts
-
-        else:
-            # Si algo raro ocurre, lo saltamos
-            continue
-
-        rows.append({
-            "Effective Date": current_date,
-            "Index Name": index_name,
-            "Action": action,
-            "Company Name": company_name,
-            "Ticker": ticker,
-            "GICS Sector": sector
-        })
-
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
-
-    # Filtrar solo S&P 500
-    df = df[df["Index Name"].str.contains("S&P 500", case=False, na=False)]
-
-    return df.reset_index(drop=True)
-
-
-# -------------------------------------------------
-# 3. Pipeline BRUTO
-# -------------------------------------------------
-
-def scrape_sp500_raw(start_year=2020, end_year=2026):
-    df_news = collect_news(start_year, end_year)
-
-    all_rows = []
-
-    for _, row in df_news.iterrows():
-        df_table = extract_sp500_table_row(row["URL"])
-        if df_table.empty:
-            continue
-
-        df_table["Publish Date"] = row["Publish Date"]
-        df_table["Title"] = row["Title"]
-        df_table["URL"] = row["URL"]
-
-        all_rows.append(df_table)
-
-    if not all_rows:
-        return pd.DataFrame()
-
-    return pd.concat(all_rows, ignore_index=True)
-
-def normalize_date(x):
-    if pd.isna(x):
-        return None
-
-    x = str(x).strip()
-
-    # Quitar puntos en abreviaturas: "Sept." → "Sept"
-    x = re.sub(r"\.", "", x)
-
-    # Reemplazar meses abreviados raros
-    x = x.replace("Sept", "Sep")
-
-    try:
-        return parser.parse(x, dayfirst=False)
-    except:
-        return None
-
-
-def clean_sp500_dataframe(df_raw):
-
-    df = df_raw.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-
-    # -----------------------------
-    # 1. Normalizar y convertir Effective Date
-    # -----------------------------
-    df["Effective Date"] = df["Effective Date"].apply(normalize_date)
-
-    # -----------------------------
-    # 3. Eliminar columnas no deseadas
-    # -----------------------------
-    df = df.drop(columns=[c for c in ["Index Name", "GICS Sector", "Title", "URL"] if c in df.columns])
-
-    # -----------------------------
-    # 4. Filtrar solo desde 01/01/2021
-    # -----------------------------
-    df = df[df["Effective Date"] >= pd.Timestamp("2021-01-01")]
-    
-    # 1. Asegurar que sea Datetime para poder operar
-    df["Effective Date"] = pd.to_datetime(df["Effective Date"])
-
-    # 2. Convertir a "Solo Fecha" (elimina el 00:00:00 visual)
-    df["Effective Date"] = df["Effective Date"].dt.date
-
-    # -----------------------------
-    # 5. Ordenar por fecha (más reciente → más antiguo)
-    # -----------------------------
-    df = df.sort_values("Effective Date", ascending=True)
-
-    return df.reset_index(drop=True)
-
+from boto3.dynamodb.conditions import Attr
 
 def handler(event, context):
     try:
-        # 1. Obtener datos de hoy
-        actual_year = datetime.now().year
-        raw_changes = scrape_sp500_raw(actual_year, actual_year)
-        if raw_changes.empty:
-            return {"status": "no_news", "message": "No se encontraron noticias hoy"}
+        dynamodb = boto3.resource('dynamodb')
         
-        clean_changes = clean_sp500_dataframe(raw_changes)
-        today_date = datetime.now().date()
-        today_str = today_date.isoformat() # DynamoDB prefiere strings para fechas
+        # Tablas
+        table_historic = dynamodb.Table('historic_composition_sp500')
+        table_changes = dynamodb.Table('clean_changes_sp500')
 
-        # 2. LEER ÚLTIMO REGISTRO DE DYNAMODB
-        # Asumiendo que 'Date' es tu Partition Key
-        response = table.scan(Limit=10) # En una tabla real usarías un Index para el último
-        items = response.get('Items', [])
+        # 1. Definir hoy
+        today_str = datetime.now().date().isoformat()
+
+        # 2. LEER ÚLTIMO REGISTRO HISTÓRICO
+        # Escaneamos para obtener la composición más reciente
+        res_hist = table_historic.scan()
+        items_hist = res_hist.get('Items', [])
         
-        if not items:
-            return {"status": "error", "message": "Tabla DynamoDB vacía"}
+        if not items_hist:
+            return {"status": "error", "message": "Tabla histórica vacía"}
 
-        # Ordenar para obtener el último día
-        df_historic = pd.DataFrame(items)
-        df_historic['Date'] = pd.to_datetime(df_historic['Date'])
-        df_historic = df_historic.sort_values('Date')
+        df_hist = pd.DataFrame(items_hist)
+        df_hist['Date'] = pd.to_datetime(df_hist['Date'])
+        last_row = df_hist.sort_values('Date').iloc[-1]
         
-        last_row = df_historic.iloc[-1]
-        tickers_actuals = set(t.strip() for t in last_row['Ticker'].split(','))
+        # Tickers actuales (Set para evitar duplicados)
+        tickers_actuals = set(t.strip() for t in last_row['Ticker'].split(',') if t.strip())
 
-        # 3. PROCESAR CAMBIOS DE HOY
-        clean_changes['Effective Date'] = pd.to_datetime(clean_changes['Effective Date']).dt.date
-        changes_today = clean_changes[clean_changes['Effective Date'] == today_date]
+        # 3. BUSCAR CAMBIOS PARA HOY EN LA OTRA TABLA
+        # Filtramos en DynamoDB donde 'Effective Date' sea igual a hoy
+        res_changes = table_changes.scan(
+            FilterExpression=Attr('Effective Date').eq(today_str)
+        )
+        changes_today = res_changes.get('Items', [])
 
-        if not changes_today.empty:
-            for _, change in changes_today.iterrows():
+        if changes_today:
+            print(f"Se encontraron {len(changes_today)} cambios para hoy {today_str}")
+            for change in changes_today:
                 ticker = str(change['Ticker']).strip()
-                if change['Action'] == 'Addition':
+                action = change['Action']
+                
+                if action == 'Addition':
                     tickers_actuals.add(ticker)
-                elif change['Action'] == 'Deletion':
+                elif action == 'Deletion':
                     tickers_actuals.discard(ticker)
-            print(f"Cambios aplicados para {today_str}")
         else:
-            print(f"Sin cambios para {today_str}. Manteniendo composición anterior.")
+            print(f"Sin cambios programados para hoy {today_str}. Se repite composición.")
 
-        # 4. GUARDAR EN DYNAMODB (Solo la nueva fila)
-        sorted_tickers = ",".join(sorted(list(tickers_actuals)))
-        
-        # 4. GUARDAR EN DYNAMODB (Con las 3 columnas)
-        tickers_list = sorted(list(tickers_actuals))
-        sorted_tickers_string = ",".join(tickers_list)
-        total_companies = len(tickers_list) # <--- Aquí calculamos la tercera columna
-        
-        table.put_item(
+        # 4. PREPARAR NUEVA FILA
+        sorted_list = sorted(list(tickers_actuals))
+        tickers_string = ",".join(sorted_list)
+        total_companies = len(sorted_list)
+
+        # 5. GUARDAR EN DYNAMODB
+        table_historic.put_item(
             Item={
                 'Date': today_str,
-                'Ticker': sorted_tickers_string,
-                'Total Companies': total_companies  # <--- Añadida la tercera columna
+                'Ticker': tickers_string,
+                'Total Companies': total_companies
             }
         )
 
-        print(f"Éxito: {today_str} guardado con {total_companies} empresas.")
         return {
             "status": "success", 
             "date": today_str, 
-            "total": total_companies
+            "total": total_companies,
+            "changes_applied": len(changes_today)
         }
 
     except Exception as e:
