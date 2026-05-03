@@ -1,8 +1,8 @@
-name: Deploy to ECR
+name: Deploy to ECR and Update Lambda
 
 on:
   push:
-    branches: [ main ] # Se activa cuando subes algo a la rama principal
+    branches: [ main ]
 
 jobs:
   build-and-push:
@@ -16,17 +16,23 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1 # Cambia esto a tu región si es distinta
+          aws-region: us-east-1 # Asegúrate de que sea tu región
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Build, tag, and push image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: repositorio_prueba # <--- CAMBIA ESTO
-          IMAGE_TAG: latest
+          ECR_REPOSITORY: update_composition_sp500 # Tu nombre de ECR
+          IMAGE_TAG: sp500
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f dockerfiles/Dockerfile .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f dockerfiles/composition_sp500/Dockerfile .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Update Lambda Function
+        run: |
+          aws lambda update-function-code \
+            --function-name TU_NOMBRE_DE_LAMBDA \
+            --image-uri ${{ steps.login-ecr.outputs.registry }}/historic_composition_sp500:latest

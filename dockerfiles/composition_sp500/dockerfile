@@ -1,0 +1,11 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Instalar dependencias
+COPY src/composition_sp500/requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copiar código
+COPY src/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
+
+# Comando
+CMD [ "api.handler" ]
