@@ -40,13 +40,22 @@ jobs:
       #     docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/composition_sp500/Dockerfile .
       #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      # --- PROCESO 3: MORNINGSTAR UPDATER ---
-      - name: Build and Push Morningstar
+      # # --- PROCESO 3: MORNINGSTAR UPDATER ---
+      # - name: Build and Push Morningstar
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     ECR_REPOSITORY: update_morningstar
+      #   run: |
+      #     docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/morningstar/Dockerfile .
+      #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # --- PROCESO 4: WIKIPEDIA UPDATER ---
+      - name: Build and Push Wikipedia
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: update_morningstar
+          ECR_REPOSITORY: update_wikipedia_keys
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/morningstar/Dockerfile .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/wikipedia/Dockerfile .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
      
