@@ -3,3 +3,4 @@ beautifulsoup4
 pandas
 python-dateutil
 boto3
+lxml
