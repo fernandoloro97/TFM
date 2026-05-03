@@ -55,7 +55,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: update_wikipedia_keys
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/wikipedia/Dockerfile .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/_keys/Dockerfile .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
      
