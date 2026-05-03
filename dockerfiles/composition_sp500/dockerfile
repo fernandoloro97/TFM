@@ -1,14 +1,16 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# 1. Instalamos herramientas de sistema para evitar el error de "metadata"
-RUN yum install -y gcc-c++ libxml2-devel libxslt-devel
+# 1. Instalamos herramientas y librerías de desarrollo de Python
+RUN yum install -y gcc gcc-c++ python3-devel
 
-# 2. Copiamos los requerimientos usando la ruta desde la raíz del repo
+# 2. Actualizamos pip (vital para evitar el error de metadata)
+RUN pip install --upgrade pip
+
+# 3. Copiamos e instalamos
 COPY src/composition_sp500/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Copiamos el script directamente a la raíz de la tarea de Lambda
+# 4. Copiamos el script
 COPY src/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
 
-# 4. El Handler: NOMBRE_ARCHIVO.FUNCION
 CMD [ "composition_sp500.handler" ]
