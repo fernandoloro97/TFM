@@ -25,7 +25,7 @@ def descargar_tabla_completa(nombre_tabla):
 print("📥 Cargando tablas desde DynamoDB...")
 sp500_actualizado = descargar_tabla_completa('historic_composition_sp500')
 clean_changes_sp500 = descargar_tabla_completa('clean_changes_sp500')
-precios_cierre_sesion_historico = descargar_tabla_completa('precios_cierre_sesion')
+precios_cierre_sesion_historico = descargar_tabla_completa('sesion_close_prices')
 
 # Asegurar formatos de fecha
 sp500_actualizado['Date'] = pd.to_datetime(sp500_actualizado['Date'])
