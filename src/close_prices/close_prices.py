@@ -5,6 +5,7 @@ import time
 import pytz
 from datetime import datetime, timedelta
 from botocore.exceptions import ClientError
+from decimal import Decimal
 
 # --- 1. CONFIGURACIÓN INICIAL Y CONEXIÓN ---
 API_KEY = "PKAPICHWO6YCDQQP7J54WS5VSB"
@@ -61,25 +62,25 @@ cierre_ny = tz_ny.localize(datetime.strptime(f"{fecha_str} 16:00:00", "%Y-%m-%d 
 START = apertura_ny.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 END = cierre_ny.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def descargar_ticker(ticker, start_date=None, end_date=None):
-    s = start_date if start_date else START
-    e = end_date if end_date else END
-    url = "https://alpaca.markets"
-    headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": API_SECRET}
-    params = {"symbols": ticker, "timeframe": "1Min", "start": s, "end": e, "feed": "sip", "adjustment": "all"}
+# def descargar_ticker(ticker, start_date=None, end_date=None):
+#     s = start_date if start_date else START
+#     e = end_date if end_date else END
+#     url = "https://alpaca.markets"
+#     headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": API_SECRET}
+#     params = {"symbols": ticker, "timeframe": "1Min", "start": s, "end": e, "feed": "sip", "adjustment": "all"}
     
-    all_bars = []
-    page_token = None
-    while True:
-        if page_token: params["page_token"] = page_token
-        r = requests.get(url, headers=headers, params=params, timeout=30)
-        if r.status_code != 200: break
-        data = r.json()
-        bars = data.get("bars", {}).get(ticker, [])
-        all_bars.extend(bars)
-        page_token = data.get("next_page_token")
-        if not page_token: break
-    return all_bars
+#     all_bars = []
+#     page_token = None
+#     while True:
+#         if page_token: params["page_token"] = page_token
+#         r = requests.get(url, headers=headers, params=params, timeout=30)
+#         if r.status_code != 200: break
+#         data = r.json()
+#         bars = data.get("bars", {}).get(ticker, [])
+#         all_bars.extend(bars)
+#         page_token = data.get("next_page_token")
+#         if not page_token: break
+#     return all_bars
 
 def descargar_ticker(ticker, start_date=None, end_date=None):
     s = start_date if start_date else START
@@ -133,14 +134,46 @@ for ticker, df_t in diccionario_precios.items():
     lista_cols.append(temp)
 
 precios_cierre_hoy = pd.concat(lista_cols, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
-precios_cierre_hoy.index.name = 'Date'
+# precios_cierre_hoy.index.name = 'Date'
 precios_cierre_hoy = precios_cierre_hoy.between_time('09:30', '16:00').reset_index()
+
+
+# --- VALIDACIÓN DE DESCARGA ---
+total_solicitados = len(lista_tickers)
+tickers_con_datos = [col for col in precios_cierre_hoy.columns if col != 'Date']
+total_recibidos = len(tickers_con_datos)
+
+print(f"\n--- RESUMEN DE VALIDACIÓN ---")
+print(f"✅ Tickers solicitados: {total_solicitados}")
+print(f"✅ Tickers con datos recibidos: {total_recibidos}")
+
+if total_recibidos < total_solicitados:
+    fallidos = set(lista_tickers) - set(tickers_con_datos)
+    # Ignorar el mapeo de nombres especiales para la comparación
+    mapeo_inverso = {'BF.B': 'BF-B', 'BRK.B': 'BRK-B'}
+    fallidos_reales = [t for t in fallidos if t not in mapeo_inverso.values()]
+    
+    if fallidos_reales:
+        print(f"⚠️ ¡ALERTA! Faltan {len(fallidos_reales)} tickers: {fallidos_reales}")
+    else:
+        print("✅ Todos los tickers están presentes (considerando mapeos de nombres).")
+else:
+    print("✅ ¡Perfecto! Los 503 tickers están presentes en el DataFrame.")
+
+# Comprobar calidad de los datos (NaNs)
+registros_totales = len(precios_cierre_hoy) * total_recibidos
+nans_totales = precios_cierre_hoy.isna().sum().sum()
+print(f"📊 Calidad: {nans_totales} celdas vacías (NaN) de {registros_totales} totales.")
+
+
+
 
 # --- 6. UNIFICACIÓN Y TICKERS NUEVOS ---
 precios_cierre_sesion_actualizado = pd.concat([precios_cierre_sesion_historico, precios_cierre_hoy], axis=0, sort=False).reset_index(drop=True)
 
 columnas_nuevas = set(precios_cierre_sesion_actualizado.columns) - set(precios_cierre_sesion_historico.columns)
 if 'Date' in columnas_nuevas: columnas_nuevas.remove('Date')
+
 
 diccionario_hist = {}
 if columnas_nuevas:
@@ -164,40 +197,96 @@ if columnas_nuevas:
         precios_cierre_sesion_actualizado.update(df_h_ready)
     precios_cierre_sesion_actualizado.reset_index(inplace=True)
 
+# # --- 7. ACTUALIZACIÓN DE DYNAMODB ---
+# tabla_dest = dynamodb.Table('sesion_close_prices')
+
+# # A. Borrar día antiguo
+# fecha_min = precios_cierre_sesion_actualizado['Date'].min()
+# filas_borrar = precios_cierre_sesion_actualizado[precios_cierre_sesion_actualizado['Date'].dt.date == fecha_min.date()]
+# print(f"Borrando {fecha_min.date()} de DynamoDB...")
+# with tabla_dest.batch_writer() as batch:
+#     for _, fila in filas_borrar.iterrows():
+#         batch.delete_item(Key={'Date': str(fila['Date'])})
+
+# # B. Subir día nuevo
+# print(f"Subiendo {fecha_str}...")
+# datos_nuevos = precios_cierre_hoy.to_dict(orient='records')
+# with tabla_dest.batch_writer() as batch:
+#     for f in datos_nuevos:
+#         item = {k: v for k, v in f.items() if pd.notna(v)}
+#         item['Date'] = str(item['Date'])
+#         batch.put_item(Item=item)
+
+# # C. Inyectar columnas nuevas en historial nube
+# if diccionario_hist:
+#     print("💉 Inyectando historial de nuevos tickers en DynamoDB...")
+#     for ticker, df_h in diccionario_hist.items():
+#         df_h_s = df_h.set_index('Timestamp').between_time('09:30', '16:00').reset_index()
+#         for _, fila in df_h_s.iterrows():
+#             tabla_dest.update_item(
+#                 Key={'Date': str(fila['Timestamp'])},
+#                 UpdateExpression="SET #tk = :val",
+#                 ExpressionAttributeNames={"#tk": ticker},
+#                 ExpressionAttributeValues={":val": fila['Close']}
+#             )
+
+# print("Todo listo. Tablas sincronizadas.")
+
 # --- 7. ACTUALIZACIÓN DE DYNAMODB ---
 tabla_dest = dynamodb.Table('sesion_close_prices')
 
 # A. Borrar día antiguo
 fecha_min = precios_cierre_sesion_actualizado['Date'].min()
 filas_borrar = precios_cierre_sesion_actualizado[precios_cierre_sesion_actualizado['Date'].dt.date == fecha_min.date()]
-print(f"Borrando {fecha_min.date()} de DynamoDB...")
+print(f"🗑️ Borrando {fecha_min.date()} de DynamoDB...")
 with tabla_dest.batch_writer() as batch:
     for _, fila in filas_borrar.iterrows():
         batch.delete_item(Key={'Date': str(fila['Date'])})
 
-# B. Subir día nuevo
-print(f"Subiendo {fecha_str}...")
+# B. Subir día nuevo (Filtrando NaNs y convirtiendo a Decimal)
+print(f"📤 Subiendo {fecha_str}...")
 datos_nuevos = precios_cierre_hoy.to_dict(orient='records')
+
 with tabla_dest.batch_writer() as batch:
     for f in datos_nuevos:
-        item = {k: v for k, v in f.items() if pd.notna(v)}
-        item['Date'] = str(item['Date'])
-        batch.put_item(Item=item)
+        # Creamos el item final omitiendo NaNs y convirtiendo floats a Decimal
+        item = {}
+        for k, v in f.items():
+            if pd.notna(v):  # Filtro para omitir NaNs
+                if k == 'Date':
+                    item[k] = str(v)
+                elif isinstance(v, (float, int)):
+                    item[k] = Decimal(str(v))
+                else:
+                    item[k] = v
+        
+        # Solo subimos si tiene la fecha y al menos un precio
+        if len(item) > 1:
+            batch.put_item(Item=item)
 
-# C. Inyectar columnas nuevas en historial nube
+# C. Inyectar columnas nuevas en historial nube (Filtrando NaNs y usando Decimal)
 if diccionario_hist:
     print("💉 Inyectando historial de nuevos tickers en DynamoDB...")
     for ticker, df_h in diccionario_hist.items():
+        # Procesamos el historial descargado
         df_h_s = df_h.set_index('Timestamp').between_time('09:30', '16:00').reset_index()
         for _, fila in df_h_s.iterrows():
-            tabla_dest.update_item(
-                Key={'Date': str(fila['Timestamp'])},
-                UpdateExpression="SET #tk = :val",
-                ExpressionAttributeNames={"#tk": ticker},
-                ExpressionAttributeValues={":val": fila['Close']}
-            )
+            valor = fila['Close']
+            
+            # Solo actualizamos en DynamoDB si el valor NO es NaN
+            if pd.notna(valor):
+                try:
+                    tabla_dest.update_item(
+                        Key={'Date': str(fila['Timestamp'])},
+                        UpdateExpression="SET #tk = :val",
+                        ExpressionAttributeNames={"#tk": ticker},
+                        ExpressionAttributeValues={":val": Decimal(str(valor))}
+                    )
+                except ClientError as e:
+                    # Si la fecha no existe en la tabla (raro, pero posible), se salta
+                    print(f"No se pudo actualizar {ticker} para la fecha {fila['Timestamp']}")
 
-print("Todo listo. Tablas sincronizadas.")
+print("✅ Todo listo. Tablas sincronizadas y NaNs filtrados.")
 
 if __name__ == "__main__":
     # Aquí puedes llamar a la función principal que contiene todo tu código
