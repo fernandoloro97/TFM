@@ -1,0 +1,6 @@
+boto3
+pandas==2.0.3
+numpy==1.24.3
+requests
+pytz
+python-dateutil

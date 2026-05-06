@@ -1,0 +1,11 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# 1. Copiar requerimientos e instalar (usando el target de Lambda)
+COPY src/close_prices/requirements.txt .
+RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+
+# 2. Copiar el script
+COPY src/close_prices/close_prices.py ${LAMBDA_TASK_ROOT}
+
+# 3. El CMD apunta a la función handler del archivo
+CMD [ "close_prices.handler" ]

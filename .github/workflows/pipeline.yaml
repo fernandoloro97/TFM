@@ -58,4 +58,13 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/wikipedia_keys/Dockerfile .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
+      # --- PROCESO 5: CLOSE PRICES ---
+      - name: Build and Push Close Prices
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: close_prices
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f dockerfiles/close_prices/Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
      
