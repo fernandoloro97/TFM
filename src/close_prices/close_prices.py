@@ -314,7 +314,7 @@ with tabla_vol.batch_writer() as batch:
 # B. Subir día nuevo (volumen_hoy)
 print(f"📤 Subiendo volúmenes de {fecha_str}...")
 # Asegúrate que 'volumen_hoy' tenga la columna 'Date' tras el reset_index anterior
-datos_vol_nuevos = volumen_hoy.to_dict(orient='records') 
+datos_vol_nuevos = volumenes_hoy.to_dict(orient='records') 
 
 with tabla_vol.batch_writer() as batch:
     for f in datos_vol_nuevos:
