@@ -99,33 +99,57 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
             
     return all_bars
 
+# # --- 5. DESCARGA DEL DÍA ACTUAL ---
+# print(f"Descargando precios para {fecha_str}...")
+# diccionario_precios = {}
+# for i, ticker in enumerate(lista_tickers, 1):
+#     print(f"[{i}/{len(lista_tickers)}] {ticker}", end="\r")
+#     bars = descargar_ticker(ticker)
+#     if bars:
+#         df_t = pd.DataFrame(bars).rename(columns={'t': 'Timestamp', 'c': 'Close'})
+#         df_t['Timestamp'] = pd.to_datetime(df_t['Timestamp']).dt.tz_convert('America/New_York').dt.tz_localize(None)
+#         diccionario_precios[ticker] = df_t
+#     time.sleep(0.5)
+
+# # Crear precios_cierre_hoy
+# lista_cols = []
+# for ticker, df_t in diccionario_precios.items():
+#     temp = df_t[['Timestamp', 'Close']].set_index('Timestamp')
+#     temp.columns = [ticker]
+#     lista_cols.append(temp)
+
+# precios_cierre_hoy = pd.concat(lista_cols, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
+# precios_cierre_hoy.index.name = 'Date'
+# precios_cierre_hoy = precios_cierre_hoy.between_time('09:30', '16:00').reset_index()
+
 # --- 5. DESCARGA DEL DÍA ACTUAL ---
-print(f"Descargando precios para {fecha_str}...")
-diccionario_precios = {}
+print(f"Descargando datos para {fecha_str}...")
+diccionario_datos = {} # Cambiamos nombre a algo genérico ya que trae Close y Volume
 for i, ticker in enumerate(lista_tickers, 1):
     print(f"[{i}/{len(lista_tickers)}] {ticker}", end="\r")
     bars = descargar_ticker(ticker)
     if bars:
-        df_t = pd.DataFrame(bars).rename(columns={'t': 'Timestamp', 'c': 'Close'})
+        # CORRECCIÓN: Renombramos 'c' a 'Close' Y 'v' a 'Volume'
+        df_t = pd.DataFrame(bars).rename(columns={'t': 'Timestamp', 'c': 'Close', 'v': 'Volume'})
         df_t['Timestamp'] = pd.to_datetime(df_t['Timestamp']).dt.tz_convert('America/New_York').dt.tz_localize(None)
-        diccionario_precios[ticker] = df_t
+        diccionario_datos[ticker] = df_t
     time.sleep(0.5)
 
-# Crear precios_cierre_hoy
-lista_cols = []
-for ticker, df_t in diccionario_precios.items():
+# --- 6. CREAR DATAFRAME DE PRECIOS ---
+lista_cols_precios = []
+for ticker, df_t in diccionario_datos.items():
     temp = df_t[['Timestamp', 'Close']].set_index('Timestamp')
     temp.columns = [ticker]
-    lista_cols.append(temp)
+    lista_cols_precios.append(temp)
 
-precios_cierre_hoy = pd.concat(lista_cols, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
+precios_cierre_hoy = pd.concat(lista_cols_precios, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
 precios_cierre_hoy.index.name = 'Date'
 precios_cierre_hoy = precios_cierre_hoy.between_time('09:30', '16:00').reset_index()
 
-
-# Crear precios_cierre_hoy
+# --- 7. CREAR DATAFRAME DE VOLÚMENES ---
 lista_cols_volumes = []
-for ticker, df_t in diccionario_precios.items():
+for ticker, df_t in diccionario_datos.items():
+    # Ahora 'Volume' sí existe en df_t
     temp = df_t[['Timestamp', 'Volume']].set_index('Timestamp')
     temp.columns = [ticker]
     lista_cols_volumes.append(temp)
@@ -133,7 +157,6 @@ for ticker, df_t in diccionario_precios.items():
 volumenes_hoy = pd.concat(lista_cols_volumes, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
 volumenes_hoy.index.name = 'Date'
 volumenes_hoy = volumenes_hoy.between_time('09:30', '16:00').reset_index()
-
 
 # # --- VALIDACIÓN DE DESCARGA ---
 # total_solicitados = len(lista_tickers)
