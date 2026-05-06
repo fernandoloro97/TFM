@@ -91,7 +91,7 @@ for i, ticker in enumerate(lista_tickers, 1):
         df_t = pd.DataFrame(bars).rename(columns={'t': 'Timestamp', 'c': 'Close'})
         df_t['Timestamp'] = pd.to_datetime(df_t['Timestamp']).dt.tz_convert('America/New_York').dt.tz_localize(None)
         diccionario_precios[ticker] = df_t
-    time.sleep(0.3)
+    time.sleep(0.5)
 
 # Crear precios_cierre_hoy
 lista_cols = []
