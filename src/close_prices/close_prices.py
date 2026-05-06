@@ -85,15 +85,15 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
                 
                 elif r.status_code == 429: # Rate Limit (vas muy rápido)
                     print(f"Rate limit en {ticker}. Reintento {intento}/3... esperando 5s")
-                    time.sleep(5)
+                    time.sleep(1.5)
                 
                 else:
                     print(f"Error {r.status_code} en {ticker}. Reintento {intento}/3...")
-                    time.sleep(2)
+                    time.sleep(1)
                     
             except Exception as e:
                 print(f"Error de conexión en {ticker}: {e}. Reintento {intento}/3...")
-                time.sleep(2)
+                time.sleep(1)
         
         # Si después de 3 intentos no funcionó, devolvemos lo que tengamos
         if r is None or r.status_code != 200:
