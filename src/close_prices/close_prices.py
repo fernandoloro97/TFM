@@ -22,7 +22,7 @@ def descargar_tabla_completa(nombre_tabla):
     return pd.DataFrame(data)
 
 # --- 2. CARGA DE TABLAS DESDE DYNAMODB ---
-print("📥 Cargando tablas desde DynamoDB...")
+print("Cargando tablas desde DynamoDB...")
 sp500_actualizado = descargar_tabla_completa('historic_composition_sp500')
 clean_changes_sp500 = descargar_tabla_completa('clean_changes_sp500')
 precios_cierre_sesion_historico = descargar_tabla_completa('sesion_close_prices')
@@ -79,6 +79,38 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
         all_bars.extend(bars)
         page_token = data.get("next_page_token")
         if not page_token: break
+    return all_bars
+
+def descargar_ticker(ticker, start_date=None, end_date=None):
+    s = start_date if start_date else START
+    e = end_date if end_date else END
+    
+    # URL CORREGIDA - Fíjate en el "data." y en la ruta final
+    url = "https://data.alpaca.markets/v2/stocks/bars"
+    
+    headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": API_SECRET}
+    params = {"symbols": ticker, "timeframe": "1Min", "start": s, "end": e, "feed": "sip", "adjustment": "all"}
+    
+    all_bars = []
+    page_token = None
+    while True:
+        if page_token: params["page_token"] = page_token
+        r = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        if r.status_code != 200: 
+            print(f"Error en {ticker}: {r.status_code} - {r.text[:50]}")
+            break
+            
+        try:
+            data = r.json()
+            bars = data.get("bars", {}).get(ticker, [])
+            all_bars.extend(bars)
+            page_token = data.get("next_page_token")
+            if not page_token: break
+        except Exception as e:
+            print(f"Fallo JSON en {ticker}: {e}")
+            break
+            
     return all_bars
 
 # --- 5. DESCARGA DEL DÍA ACTUAL ---
