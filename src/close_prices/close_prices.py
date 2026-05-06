@@ -165,7 +165,7 @@ if columnas_nuevas:
     precios_cierre_sesion_actualizado.reset_index(inplace=True)
 
 # --- 7. ACTUALIZACIÓN DE DYNAMODB ---
-tabla_dest = dynamodb.Table('precios_cierre_sesion')
+tabla_dest = dynamodb.Table('sesion_close_prices')
 
 # A. Borrar día antiguo
 fecha_min = precios_cierre_sesion_actualizado['Date'].min()
