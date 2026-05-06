@@ -118,27 +118,6 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
         
     return all_bars
 
-# --- BUCLE PRINCIPAL ---
-inicio = time.time()
-diccionario_precios = {}
-
-for i, ticker in enumerate(lista_tickers, 1):
-    # Imprimimos cada 50 tickers para no saturar los logs de CloudWatch
-    if i % 50 == 0 or i == 1:
-        print(f"Procesando [{i}/{len(lista_tickers)}]...")
-        
-    bars = descargar_ticker(ticker)
-    
-    if bars:
-        df = pd.DataFrame(bars)
-        # ... tu lógica de procesamiento de columnas y horas NY ...
-        diccionario_precios[ticker] = df
-    
-    # IMPORTANTE: 0.4s en AWS es el mínimo seguro para no ser baneado
-    time.sleep(0.4)
-
-fin = time.time()
-print(f"Completado en {int((fin - inicio) // 60)} min y {int((fin - inicio) % 60)} seg.")
 
 def descargar_ticker222(ticker, start_date=None, end_date=None):
     s = start_date if start_date else START
@@ -205,7 +184,7 @@ for i, ticker in enumerate(lista_tickers, 1):
         df_t = pd.DataFrame(bars).rename(columns={'t': 'Timestamp', 'c': 'Close'})
         df_t['Timestamp'] = pd.to_datetime(df_t['Timestamp']).dt.tz_convert('America/New_York').dt.tz_localize(None)
         diccionario_precios[ticker] = df_t
-    time.sleep(0.5)
+    time.sleep(0.4)
 
 # Crear precios_cierre_hoy
 lista_cols = []
