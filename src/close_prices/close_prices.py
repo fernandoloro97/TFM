@@ -79,6 +79,8 @@ HEADERS = {
 def descargar_ticker(ticker, start_date=None, end_date=None):
     s = start_date if start_date else START
     e = end_date if end_date else END
+    
+    # ESTA ES LA URL CORRECTA PARA DATOS
     url = "https://alpaca.markets"
     
     params = {
@@ -87,7 +89,7 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
         "start": s,
         "end": e,
         "limit": 10000,
-        "feed": "sip", # Si falla mucho, cámbialo a 'iex'
+        "feed": "sip", 
         "adjustment": "all",
     }
 
@@ -96,11 +98,10 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
 
     while True:
         if page_token: params["page_token"] = page_token
-
         try:
-            # Usamos la sesión en lugar de requests directo
             r = session.get(url, headers=HEADERS, params=params, timeout=15)
             
+            # Si Alpaca responde algo que no es 200, no intentamos el .json()
             if r.status_code != 200:
                 print(f"⚠️ Error {r.status_code} en {ticker}: {r.text[:50]}")
                 break
@@ -111,67 +112,68 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
 
             page_token = data.get("next_page_token")
             if not page_token: break
-            
         except Exception as err:
-            print(f"❌ Fallo de red en {ticker}: {err}")
+            # Aquí es donde te saltaba el "Expecting value"
+            print(f"❌ Fallo en {ticker}: {err}")
             break
-        
+            
     return all_bars
 
 
-def descargar_ticker222(ticker, start_date=None, end_date=None):
-    s = start_date if start_date else START
-    e = end_date if end_date else END
-    url = "https://alpaca.markets"
-    headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": API_SECRET}
-    params = {"symbols": ticker, "timeframe": "1Min", "start": s, "end": e, "feed": "sip", "adjustment": "all"}
+
+# def descargar_ticker222(ticker, start_date=None, end_date=None):
+#     s = start_date if start_date else START
+#     e = end_date if end_date else END
+#     url = "https://alpaca.markets"
+#     headers = {"APCA-API-KEY-ID": API_KEY, "APCA-API-SECRET-KEY": API_SECRET}
+#     params = {"symbols": ticker, "timeframe": "1Min", "start": s, "end": e, "feed": "sip", "adjustment": "all"}
     
-    all_bars = []
-    page_token = None
+#     all_bars = []
+#     page_token = None
     
-    while True:
-        if page_token: params["page_token"] = page_token
+#     while True:
+#         if page_token: params["page_token"] = page_token
         
-        # --- Lógica de Reintentos ---
-        r = None
-        for intento in range(1, 4): # Intentará hasta 3 veces
-            try:
-                r = requests.get(url, headers=headers, params=params, timeout=30)
+#         # --- Lógica de Reintentos ---
+#         r = None
+#         for intento in range(1, 4): # Intentará hasta 3 veces
+#             try:
+#                 r = requests.get(url, headers=headers, params=params, timeout=30)
                 
-                if r.status_code == 200:
-                    break # Éxito, salimos del bucle de reintentos
+#                 if r.status_code == 200:
+#                     break # Éxito, salimos del bucle de reintentos
                 
-                elif r.status_code == 429: # Rate Limit (vas muy rápido)
-                    print(f"Rate limit en {ticker}. Reintento {intento}/3... esperando 5s")
-                    time.sleep(1.5)
+#                 elif r.status_code == 429: # Rate Limit (vas muy rápido)
+#                     print(f"Rate limit en {ticker}. Reintento {intento}/3... esperando 5s")
+#                     time.sleep(1.5)
                 
-                else:
-                    print(f"Error {r.status_code} en {ticker}. Reintento {intento}/3...")
-                    time.sleep(1)
+#                 else:
+#                     print(f"Error {r.status_code} en {ticker}. Reintento {intento}/3...")
+#                     time.sleep(1)
                     
-            except Exception as e:
-                print(f"Error de conexión en {ticker}: {e}. Reintento {intento}/3...")
-                time.sleep(1)
+#             except Exception as e:
+#                 print(f"Error de conexión en {ticker}: {e}. Reintento {intento}/3...")
+#                 time.sleep(1)
         
-        # Si después de 3 intentos no funcionó, devolvemos lo que tengamos
-        if r is None or r.status_code != 200:
-            print(f"Imposible descargar {ticker} tras 3 intentos.")
-            return all_bars
+#         # Si después de 3 intentos no funcionó, devolvemos lo que tengamos
+#         if r is None or r.status_code != 200:
+#             print(f"Imposible descargar {ticker} tras 3 intentos.")
+#             return all_bars
 
-        # --- Decodificación segura ---
-        try:
-            data = r.json()
-            bars = data.get("bars", {}).get(ticker, [])
-            all_bars.extend(bars)
+#         # --- Decodificación segura ---
+#         try:
+#             data = r.json()
+#             bars = data.get("bars", {}).get(ticker, [])
+#             all_bars.extend(bars)
             
-            page_token = data.get("next_page_token")
-            if not page_token: 
-                break
-        except Exception:
-            print(f"Error de formato JSON en {ticker}. Respuesta: {r.text[:100]}")
-            return all_bars
+#             page_token = data.get("next_page_token")
+#             if not page_token: 
+#                 break
+#         except Exception:
+#             print(f"Error de formato JSON en {ticker}. Respuesta: {r.text[:100]}")
+#             return all_bars
             
-    return all_bars
+#     return all_bars
 
 
 # --- 5. DESCARGA DEL DÍA ACTUAL ---
