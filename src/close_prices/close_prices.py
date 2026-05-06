@@ -70,19 +70,54 @@ def descargar_ticker(ticker, start_date=None, end_date=None):
     
     all_bars = []
     page_token = None
+    
     while True:
         if page_token: params["page_token"] = page_token
-        r = requests.get(url, headers=headers, params=params, timeout=30)
-        if r.status_code != 200: break
-        data = r.json()
-        bars = data.get("bars", {}).get(ticker, [])
-        all_bars.extend(bars)
-        page_token = data.get("next_page_token")
-        if not page_token: break
+        
+        # --- Lógica de Reintentos ---
+        r = None
+        for intento in range(1, 4): # Intentará hasta 3 veces
+            try:
+                r = requests.get(url, headers=headers, params=params, timeout=30)
+                
+                if r.status_code == 200:
+                    break # Éxito, salimos del bucle de reintentos
+                
+                elif r.status_code == 429: # Rate Limit (vas muy rápido)
+                    print(f"Rate limit en {ticker}. Reintento {intento}/3... esperando 5s")
+                    time.sleep(5)
+                
+                else:
+                    print(f"Error {r.status_code} en {ticker}. Reintento {intento}/3...")
+                    time.sleep(2)
+                    
+            except Exception as e:
+                print(f"Error de conexión en {ticker}: {e}. Reintento {intento}/3...")
+                time.sleep(2)
+        
+        # Si después de 3 intentos no funcionó, devolvemos lo que tengamos
+        if r is None or r.status_code != 200:
+            print(f"Imposible descargar {ticker} tras 3 intentos.")
+            return all_bars
+
+        # --- Decodificación segura ---
+        try:
+            data = r.json()
+            bars = data.get("bars", {}).get(ticker, [])
+            all_bars.extend(bars)
+            
+            page_token = data.get("next_page_token")
+            if not page_token: 
+                break
+        except Exception:
+            print(f"Error de formato JSON en {ticker}. Respuesta: {r.text[:100]}")
+            return all_bars
+            
     return all_bars
 
+
 # --- 5. DESCARGA DEL DÍA ACTUAL ---
-print(f"🚀 Descargando precios para {fecha_str}...")
+print(f"Descargando precios para {fecha_str}...")
 diccionario_precios = {}
 for i, ticker in enumerate(lista_tickers, 1):
     print(f"[{i}/{len(lista_tickers)}] {ticker}", end="\r")
