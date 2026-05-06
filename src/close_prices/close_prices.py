@@ -135,7 +135,8 @@ for ticker, df_t in diccionario_precios.items():
 
 precios_cierre_hoy = pd.concat(lista_cols, axis=1).rename(columns={'BF.B': 'BF-B', 'BRK.B': 'BRK-B'})
 # precios_cierre_hoy.index.name = 'Date'
-precios_cierre_hoy = precios_cierre_hoy.between_time('09:30', '16:00').reset_index()
+precios_cierre_hoy = precios_cierre_hoy.reset_index().rename(columns={'Timestamp': 'Date'})
+# precios_cierre_hoy = precios_cierre_hoy.between_time('09:30', '16:00').reset_index()
 
 
 # --- VALIDACIÓN DE DESCARGA ---
@@ -178,7 +179,7 @@ if 'Date' in columnas_nuevas: columnas_nuevas.remove('Date')
 diccionario_hist = {}
 if columnas_nuevas:
     print(f"\n✨ Nuevos tickers detectados: {columnas_nuevas}. Bajando 21 días...")
-    ref = pd.to_datetime("2026-05-05")
+    ref = pd.to_datetime("2026-05-04")
     S_HIST = (ref - timedelta(days=21)).strftime('%Y-%m-%dT00:00:00Z')
     E_HIST = (ref - timedelta(days=1)).strftime('%Y-%m-%dT23:59:59Z')
     
