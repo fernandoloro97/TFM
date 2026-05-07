@@ -1,72 +1,72 @@
-# name: Ejecucion Diaria Precios
-
-# on:
-#   push:
-#     branches: [ main ]
-#   schedule:
-#     - cron: '09 18 * * *' 
-#   workflow_dispatch: 
-
-# jobs:
-#   ejecutar-script:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
-
-#       - name: Setup Python
-#         uses: actions/setup-python@v4
-#         with:
-#           python-version: '3.11'
-
-#       - name: Install dependencies
-#         run: |
-#           pip install pandas boto3 requests pytz
-
-#       - name: Run Script
-#         env:
-#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           AWS_DEFAULT_REGION: us-east-1
-#           API_KEY: ${{ secrets.API_KEY }}
-#           API_SECRET: ${{ secrets.API_SECRET }}
-#         run: python src/prices_and_volumes/prices_and_volumes.py
-
-name: Build and Push to ECR
+name: Ejecucion Diaria Precios
 
 on:
   push:
-    branches:
-      - main  # Se ejecuta al subir cambios a la rama principal
+    branches: [ main ]
+  schedule:
+    - cron: '09 18 * * *' 
+  workflow_dispatch: 
 
 jobs:
-  deploy:
+  ejecutar-script:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          python-version: '3.11'
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and Push Image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: update_prices_volumes
+      - name: Install dependencies
         run: |
-          # Construimos la imagen usando la ruta específica del Dockerfile
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-                       -f dockerfiles/prices_volumes/dockerfile .
+          pip install pandas boto3 requests pytz
+
+      - name: Run Script
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          API_KEY: ${{ secrets.API_KEY }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+        run: python src/prices_and_volumes/prices_and_volumes_github.py
+
+# name: Build and Push to ECR
+
+# on:
+#   push:
+#     branches:
+#       - main  # Se ejecuta al subir cambios a la rama principal
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1
+
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Build and Push Image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: update_prices_volumes
+#         run: |
+#           # Construimos la imagen usando la ruta específica del Dockerfile
+#           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+#                        -f dockerfiles/prices_volumes/dockerfile .
           
-          # Subimos la imagen a ECR
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+#           # Subimos la imagen a ECR
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
