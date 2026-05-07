@@ -355,7 +355,7 @@ if diccionario_hist:
 
 print("Todo listo. Tablas sincronizadas y NaNs filtrados.")
 
-if __name__ == "__main__":
-    # Aquí puedes llamar a la función principal que contiene todo tu código
-    # Si metiste todo el código en una función llamada 'main' o 'handler'
-    print("Iniciando ejecución desde GitHub Actions...")
+# if __name__ == "__main__":
+#     # Aquí puedes llamar a la función principal que contiene todo tu código
+#     # Si metiste todo el código en una función llamada 'main' o 'handler'
+#     print("Iniciando ejecución desde GitHub Actions...")
