@@ -65,7 +65,7 @@ jobs:
         run: |
           # Construimos la imagen usando la ruta específica del Dockerfile
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-                       -f dockerfiles/prices-volumes/Dockerfile .
+                       -f dockerfiles/prices_olumes/dockerfile .
           
           # Subimos la imagen a ECR
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
