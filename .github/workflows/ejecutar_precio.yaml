@@ -30,7 +30,7 @@
 #           AWS_DEFAULT_REGION: us-east-1
 #           API_KEY: ${{ secrets.API_KEY }}
 #           API_SECRET: ${{ secrets.API_SECRET }}
-#         run: python src/close_prices/close_prices.py
+#         run: python src/prices_and_volumes/prices_and_volumes.py
 
 name: Build and Push to ECR
 
