@@ -1,11 +1,11 @@
 FROM public.ecr.aws/lambda/python:3.11
 
 # 1. Copiar requerimientos e instalar (usando el target de Lambda)
-COPY src/prices_volumes/requirements.txt .
+COPY src/prices_and_volumes/requirements.txt .
 RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
 # 2. Copiar el script
-COPY src/prices_volumes/prices_volumes.py ${LAMBDA_TASK_ROOT}
+COPY src/prices_and_volumes/prices_and_volumes.py ${LAMBDA_TASK_ROOT}
 
 # 3. El CMD apunta a la función handler del archivo
-CMD [ "prices_volumes.handler" ]
+CMD [ "prices_and_volumes.handler" ]
