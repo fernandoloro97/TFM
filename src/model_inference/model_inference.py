@@ -57,7 +57,7 @@ def get_table_df(table_name):
 # --- 1. LEER TABLAS DE DYNAMODB ---
 composicion_sp500_actualizado = get_table_df('historic_composition_sp500')
 wikipedia_actualizado = get_table_df('update_wikipedia_keys')
-morningstar = get_table_df('morningstar')
+morningstar = get_table_df('morningstar_classification')
 empresas_sectores_morningstar = get_table_df('companys_morningstar_sectors')
 
 # --- 2. DESCARGAR PESOS DESDE S3 ---
