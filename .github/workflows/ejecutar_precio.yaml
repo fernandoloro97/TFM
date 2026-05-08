@@ -1,36 +1,81 @@
-name: Ejecucion Diaria Precios
+name: Model Inference Pipeline
 
 on:
   push:
-    branches: [ main ]
-  schedule:
-    - cron: '09 18 * * *' 
-  workflow_dispatch: 
+    branches: [ main ]  # Se ejecuta cada vez que subes cambios a main
+  workflow_dispatch:    # Permite ejecutarlo manualmente desde la pestaña Actions
 
 jobs:
-  ejecutar-script:
+  build-and-run:
     runs-on: ubuntu-latest
+    
+    # Definimos variables de entorno para las APIs
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10' # Versión estable para torch y spacy
 
       - name: Install dependencies
         run: |
-          pip install pandas boto3 requests pytz
+          python -m pip install --upgrade pip
+          pip install pandas boto3 torch scikit-learn transformers \
+                      ctransformers sentencepiece rapidfuzz groq \
+                      sentence-transformers spacy[transformers]
+          # Descarga del modelo de Spacy (esto puede tardar un par de minutos)
+          python -m spacy download en_core_web_trf
 
-      - name: Run Script
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          API_KEY: ${{ secrets.API_KEY }}
-          API_SECRET: ${{ secrets.API_SECRET }}
-        run: python src/prices_and_volumes/prices_and_volumes_github.py
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1 # Asegúrate de que coincida con tu región de Dynamo/S3
+
+      - name: Run Inference Script
+        run: python src/model_inference/model_inference.py
+
+
+
+# name: Ejecucion Diaria Precios
+
+# on:
+#   push:
+#     branches: [ main ]
+#   schedule:
+#     - cron: '09 18 * * *' 
+#   workflow_dispatch: 
+
+# jobs:
+#   ejecutar-script:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.11'
+
+#       - name: Install dependencies
+#         run: |
+#           pip install pandas boto3 requests pytz
+
+#       - name: Run Script
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+#           API_KEY: ${{ secrets.API_KEY }}
+#           API_SECRET: ${{ secrets.API_SECRET }}
+#         run: python src/prices_and_volumes/prices_and_volumes_github.py
 
 # name: Build and Push to ECR
 
