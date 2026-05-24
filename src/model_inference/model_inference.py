@@ -63,6 +63,8 @@ empresas_sectores_morningstar = get_table_df('companys_morningstar_sectors')
 precios_cierre_sesion = get_table_df('sesion_close_prices')
 volumenes_sesion = get_table_df('sesion_volumes')
 pendientes_ayer = get_table_df('pending_trade')
+# Descargamos el histórico para extraer el saldo de caja acumulado
+historico_balance = get_table_df('daily_balance')
 
 # --- 2. DESCARGAR PESOS DESDE S3 ---
 bucket_name = 'trained-neuronal-model'
@@ -3115,281 +3117,298 @@ dataframes = [
 # Unirlos todos lateralmente
 df_inputs = pd.concat(dataframes, axis=1)
 
+# CONTROL DE SEGURIDAD ABSOLUTO: Si no hay datos, saltamos la red neuronal
+if df_inputs.empty:
+    print("⚠️ df_inputs está completamente vacío. Creando DataFrame de señales vacío...")
+    seynales_modelo = pd.DataFrame(columns=["Fila Noticia", "Tickers Mapeados", "Date", "Prob_up", "Pred_label"])
 
-# Divido los inputs
-X_title = df_inputs.iloc[:, 0:768].values
-X_content = df_inputs.iloc[:, 768:1536].values
-X_verb = df_inputs.iloc[:, 1536:2304].values
-X_context = df_inputs.iloc[:, 2304:3072].values
-# X_meta = df_inputs.iloc[:, 3072:3076].values #3076
-X_meta = df_inputs.iloc[:, np.r_[3072:3076, 3079:3083]].values
+else:
+    # Divido los inputs
+    X_title = df_inputs.iloc[:, 0:768].values
+    X_content = df_inputs.iloc[:, 768:1536].values
+    X_verb = df_inputs.iloc[:, 1536:2304].values
+    X_context = df_inputs.iloc[:, 2304:3072].values
+    # X_meta = df_inputs.iloc[:, 3072:3076].values #3076
+    # Selección explícita por nombres para X_meta (Garantiza siempre 9 columnas)
+    columnas_meta = [
+        'Agente', 
+        'Paciente', 
+        'Afectado', 
+        'Eventos', 
+        'Status_speculative', 
+        'Status_in progress',       # Ojo: con espacio según tu log
+        'Status_confirmed neutral',  # Ojo: con espacio según tu log
+        'Status_confirmed positive', # Ojo: con espacio según tu log
+        'Status_confirmed negative'  # Ojo: con espacio según tu log
+    ]
 
+    X_meta = df_inputs[columnas_meta].values
 
-# =========================================================
-# ESCALADO INDEPENDIENTE
-# =========================================================
+    # =========================================================
+    # ESCALADO INDEPENDIENTE
+    # =========================================================
 
-scaler_title = StandardScaler()
-scaler_content = StandardScaler()
-scaler_verb = StandardScaler()
-scaler_context = StandardScaler()
-scaler_meta = StandardScaler()
+    scaler_title = StandardScaler()
+    scaler_content = StandardScaler()
+    scaler_verb = StandardScaler()
+    scaler_context = StandardScaler()
+    scaler_meta = StandardScaler()
 
-X_title = scaler_title.fit_transform(X_title)
-X_content = scaler_content.fit_transform(X_content)
-X_verb = scaler_verb.fit_transform(X_verb)
-X_context = scaler_context.fit_transform(X_context)
-X_meta = scaler_meta.fit_transform(X_meta)
+    X_title = scaler_title.fit_transform(X_title)
+    X_content = scaler_content.fit_transform(X_content)
+    X_verb = scaler_verb.fit_transform(X_verb)
+    X_context = scaler_context.fit_transform(X_context)
+    X_meta = scaler_meta.fit_transform(X_meta)
 
-X_title = torch.tensor(X_title, dtype=torch.float32)
-X_content = torch.tensor(X_content, dtype=torch.float32)
-X_verb = torch.tensor(X_verb, dtype=torch.float32)
-X_context = torch.tensor(X_context, dtype=torch.float32)
-X_meta = torch.tensor(X_meta, dtype=torch.float32)
+    X_title = torch.tensor(X_title, dtype=torch.float32)
+    X_content = torch.tensor(X_content, dtype=torch.float32)
+    X_verb = torch.tensor(X_verb, dtype=torch.float32)
+    X_context = torch.tensor(X_context, dtype=torch.float32)
+    X_meta = torch.tensor(X_meta, dtype=torch.float32)
 
-batch_size = 512
+    batch_size = 512
 
-test_loader = DataLoader(
-    TensorDataset(X_title, X_content, X_verb, X_context, X_meta),
-    batch_size=batch_size,
-    shuffle=False  # importante: mantener orden temporal
-)
+    test_loader = DataLoader(
+        TensorDataset(X_title, X_content, X_verb, X_context, X_meta),
+        batch_size=batch_size,
+        shuffle=False  # importante: mantener orden temporal
+    )
 
-class MultiInputModel(nn.Module):
+    class MultiInputModel(nn.Module):
 
-    def __init__(self):
+        def __init__(self):
 
-        super().__init__()
+            super().__init__()
 
-        # =================================================
-        # HIPERPARAMETROS NN_41
-        # =================================================
+            # =================================================
+            # HIPERPARAMETROS NN_41
+            # =================================================
 
-        hidden_dim = 48
-        dropout = 0.15
+            hidden_dim = 48
+            dropout = 0.15
 
-        small_dim = hidden_dim // 2  # 24
+            small_dim = hidden_dim // 2  # 24
 
-        # =================================================
-        # TITLE
-        # =================================================
+            # =================================================
+            # TITLE
+            # =================================================
 
-        self.title_branch = nn.Sequential(
+            self.title_branch = nn.Sequential(
 
-            nn.Linear(768, hidden_dim),
+                nn.Linear(768, hidden_dim),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.BatchNorm1d(hidden_dim),
+                nn.BatchNorm1d(hidden_dim),
 
-            nn.Dropout(dropout),
+                nn.Dropout(dropout),
 
-            nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim),
 
-            nn.ReLU()
-        )
+                nn.ReLU()
+            )
 
-        # =================================================
-        # CONTENT
-        # =================================================
+            # =================================================
+            # CONTENT
+            # =================================================
 
-        self.content_branch = nn.Sequential(
+            self.content_branch = nn.Sequential(
 
-            nn.Linear(768, hidden_dim),
+                nn.Linear(768, hidden_dim),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.BatchNorm1d(hidden_dim),
+                nn.BatchNorm1d(hidden_dim),
 
-            nn.Dropout(dropout),
+                nn.Dropout(dropout),
 
-            nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim),
 
-            nn.ReLU()
-        )
+                nn.ReLU()
+            )
 
-        # =================================================
-        # VERB
-        # =================================================
+            # =================================================
+            # VERB
+            # =================================================
 
-        self.verb_branch = nn.Sequential(
+            self.verb_branch = nn.Sequential(
 
-            nn.Linear(768, small_dim),
+                nn.Linear(768, small_dim),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.Linear(small_dim, small_dim),
+                nn.Linear(small_dim, small_dim),
 
-            nn.ReLU()
-        )
+                nn.ReLU()
+            )
 
-        # =================================================
-        # CONTEXT
-        # =================================================
+            # =================================================
+            # CONTEXT
+            # =================================================
 
-        self.context_branch = nn.Sequential(
+            self.context_branch = nn.Sequential(
 
-            nn.Linear(768, small_dim),
+                nn.Linear(768, small_dim),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.Linear(small_dim, small_dim),
+                nn.Linear(small_dim, small_dim),
 
-            nn.ReLU()
-        )
+                nn.ReLU()
+            )
 
-        # =================================================
-        # META
-        # =================================================
+            # =================================================
+            # META
+            # =================================================
 
-        self.meta_branch = nn.Sequential(
+            self.meta_branch = nn.Sequential(
 
-            nn.Linear(9, 32),
+                nn.Linear(9, 32),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.Linear(32, 32),
+                nn.Linear(32, 32),
 
-            nn.ReLU()
-        )
+                nn.ReLU()
+            )
 
-        # =================================================
-        # COMBINED DIM
-        # =================================================
+            # =================================================
+            # COMBINED DIM
+            # =================================================
 
-        combined_dim = (
-            hidden_dim
-            + hidden_dim
-            + small_dim
-            + small_dim
-        )
+            combined_dim = (
+                hidden_dim
+                + hidden_dim
+                + small_dim
+                + small_dim
+            )
 
-        # =================================================
-        # GATE
-        # =================================================
+            # =================================================
+            # GATE
+            # =================================================
 
-        self.gate = nn.Sequential(
+            self.gate = nn.Sequential(
 
-            nn.Linear(combined_dim, combined_dim),
+                nn.Linear(combined_dim, combined_dim),
 
-            nn.Sigmoid()
-        )
+                nn.Sigmoid()
+            )
 
-        # =================================================
-        # HEAD
-        # =================================================
+            # =================================================
+            # HEAD
+            # =================================================
 
-        total_dim = combined_dim * 2 + 32
+            total_dim = combined_dim * 2 + 32
 
-        self.head = nn.Sequential(
+            self.head = nn.Sequential(
 
-            nn.Linear(total_dim, 256),
+                nn.Linear(total_dim, 256),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.Dropout(dropout),
+                nn.Dropout(dropout),
 
-            nn.Linear(256, 128),
+                nn.Linear(256, 128),
 
-            nn.ReLU(),
+                nn.ReLU(),
 
-            nn.Dropout(dropout),
+                nn.Dropout(dropout),
 
-            nn.Linear(128, 1)
-        )
+                nn.Linear(128, 1)
+            )
 
-    def forward(
-        self,
-        x_title,
-        x_content,
-        x_verb,
-        x_context,
-        x_meta
-    ):
+        def forward(
+            self,
+            x_title,
+            x_content,
+            x_verb,
+            x_context,
+            x_meta
+        ):
 
-        x_title = F.normalize(x_title, dim=1)
-        x_content = F.normalize(x_content, dim=1)
-        x_verb = F.normalize(x_verb, dim=1)
-        x_context = F.normalize(x_context, dim=1)
+            x_title = F.normalize(x_title, dim=1)
+            x_content = F.normalize(x_content, dim=1)
+            x_verb = F.normalize(x_verb, dim=1)
+            x_context = F.normalize(x_context, dim=1)
 
-        t = self.title_branch(x_title)
-        c = self.content_branch(x_content)
-        v = self.verb_branch(x_verb)
-        cx = self.context_branch(x_context)
-        m = self.meta_branch(x_meta)
+            t = self.title_branch(x_title)
+            c = self.content_branch(x_content)
+            v = self.verb_branch(x_verb)
+            cx = self.context_branch(x_context)
+            m = self.meta_branch(x_meta)
 
-        combined = torch.cat(
-            [t, c, v, cx],
-            dim=1
-        )
+            combined = torch.cat(
+                [t, c, v, cx],
+                dim=1
+            )
 
-        gate = self.gate(combined)
+            gate = self.gate(combined)
 
-        gated = combined * gate
+            gated = combined * gate
 
-        x = torch.cat(
-            [combined, gated, m],
-            dim=1
-        )
+            x = torch.cat(
+                [combined, gated, m],
+                dim=1
+            )
 
-        return self.head(x)
+            return self.head(x)
 
-# 2. CONFIGURA EL DISPOSITIVO
-device = torch.device("cpu")
+    # 2. CONFIGURA EL DISPOSITIVO
+    device = torch.device("cpu")
 
-# 3. INSTANCIA EL MODELO
-model = MultiInputModel()
+    # 3. INSTANCIA EL MODELO
+    model = MultiInputModel()
 
-# 4. CARGA LOS PESOS DESDE TU RUTA
-# model.load_state_dict(torch.load("mi_modelo_entrenado.pth", map_location=device))
-model.load_state_dict(torch.load(buffer, map_location=device))
+    # 4. CARGA LOS PESOS DESDE TU RUTA
+    # model.load_state_dict(torch.load("mi_modelo_entrenado.pth", map_location=device))
+    model.load_state_dict(torch.load(buffer, map_location=device))
 
-# 5. MODO EVALUACIÓN
-model.to(device)
-model.eval()
+    # 5. MODO EVALUACIÓN
+    model.to(device)
+    model.eval()
 
-model.eval()
-all_probs_test = []
+    model.eval()
+    all_probs_test = []
 
-with torch.inference_mode():
-    # El loader ahora solo devuelve los inputs, sin y_batch
-    for x_title, x_content, x_verb, x_context, x_meta in test_loader:
+    with torch.inference_mode():
+        # El loader ahora solo devuelve los inputs, sin y_batch
+        for x_title, x_content, x_verb, x_context, x_meta in test_loader:
 
-        # Mover a CPU
-        x_title = x_title.to(device)
-        x_content = x_content.to(device)
-        x_verb = x_verb.to(device)
-        x_context = x_context.to(device)
-        x_meta = x_meta.to(device)
+            # Mover a CPU
+            x_title = x_title.to(device)
+            x_content = x_content.to(device)
+            x_verb = x_verb.to(device)
+            x_context = x_context.to(device)
+            x_meta = x_meta.to(device)
 
-        # Predicción
-        outputs_test = model(x_title, x_content, x_verb, x_context, x_meta)
-        probs_test = torch.sigmoid(outputs_test)
+            # Predicción
+            outputs_test = model(x_title, x_content, x_verb, x_context, x_meta)
+            probs_test = torch.sigmoid(outputs_test)
 
-        all_probs_test.extend(probs_test.cpu().numpy())
+            all_probs_test.extend(probs_test.cpu().numpy())
 
-# Convertir a un array plano para fácil manejo
-predicciones_finales = np.array(all_probs_test).flatten()
+    # Convertir a un array plano para fácil manejo
+    predicciones_finales = np.array(all_probs_test).flatten()
 
 
-# convertir a numpy si no lo son
-probs = np.array(all_probs_test).flatten()
+    # convertir a numpy si no lo son
+    probs = np.array(all_probs_test).flatten()
 
-# etiqueta predicha con threshold 0.5
-y_pred = (probs >= 0.5).astype(int)
+    # etiqueta predicha con threshold 0.5
+    y_pred = (probs >= 0.5).astype(int)
 
-# construir dataframe
-df_results = pd.DataFrame({
-    "Prob_up": probs,
-    "Pred_label": y_pred
-})
+    # construir dataframe
+    df_results = pd.DataFrame({
+        "Prob_up": probs,
+        "Pred_label": y_pred
+    })
 
-# Unimos seleccionando solo las 3 columnas de inputs_gramatical
-seynales_modelo = inputs_gramatical[["Fila Noticia", "Tickers Mapeados", "Date"]].merge(
-    df_results,
-    left_index=True,  # Usamos el índice si los resultados mantienen el orden original
-    right_index=True
-)
+    # Unimos seleccionando solo las 3 columnas de inputs_gramatical
+    seynales_modelo = inputs_gramatical[["Fila Noticia", "Tickers Mapeados", "Date"]].merge(
+        df_results,
+        left_index=True,  # Usamos el índice si los resultados mantienen el orden original
+        right_index=True
+    )
 
 # seynales_modelo = seynales_modelo.reset_index().rename(columns={'index': 'ID'})
 
@@ -4615,7 +4634,30 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
 
 
 
-sim = TradingSimulator(capital_inicial=20000, ventana=30)
+APITAL_POR_DEFECTO = 20000
+
+if historico_balance.empty:
+    print(f"La tabla 'daily_balance' está vacía. Usando capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
+    capital_hoy = CAPITAL_POR_DEFECTO
+else:
+    print("¡Histórico contable recuperado! Extrayendo el último capital disponible...")
+    # 1. Aseguramos que los valores sean numéricos
+    historico_balance['capital_cash'] = pd.to_numeric(historico_balance['capital_cash'])
+    
+    # 2. Ordenamos cronológicamente por fecha para garantizar que el último registro sea el de ayer
+    historico_balance = historico_balance.sort_values('fecha').reset_index(drop=True)
+    
+    # 3. Extraemos el último capital_cash registrado en la base de datos
+    capital_hoy = float(historico_balance['capital_cash'].iloc[-1])
+    print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
+
+# ==============================================================================
+# INSTANCIA Y EJECUCIÓN DEL SIMULADOR
+# ==============================================================================
+# Pasamos la variable dinámica 'capital_hoy' en lugar del número fijo 20000
+sim = TradingSimulator(capital_inicial=capital_hoy, ventana=30)
+
+# sim = TradingSimulator(capital_inicial=20000, ventana=30)
 
 df_resultado, df_pendientes_resueltos = sim.ejecutar_dia(
     df_señales_hoy     = seynales_modelo,
