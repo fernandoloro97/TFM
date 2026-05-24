@@ -4634,7 +4634,7 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
 
 
 
-APITAL_POR_DEFECTO = 20000
+CAPITAL_POR_DEFECTO = 20000
 
 if historico_balance.empty:
     print(f"La tabla 'daily_balance' está vacía. Usando capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
