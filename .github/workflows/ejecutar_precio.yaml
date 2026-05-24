@@ -116,6 +116,8 @@
 #           # Subimos la imagen a ECR
 #           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
+
+# Esto es para las imagenes de datos
 name: Build and Push Multiple Images to ECR
 
 on:
