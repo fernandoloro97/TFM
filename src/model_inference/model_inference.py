@@ -4633,6 +4633,26 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
     return df[[c for c in cols_finales if c in df.columns]]
 
 
+# Reparar tabla de precios de cierre
+if not precios_cierre_sesion.empty and 'Date' in precios_cierre_sesion.columns:
+    # 1. Convertir la columna de texto a formato Datetime real de Pandas
+    precios_cierre_sesion['Date'] = pd.to_datetime(precios_cierre_sesion['Date'])
+    # 2. Establecer la fecha como índice estructural
+    precios_cierre_sesion.set_index('Date', inplace=True)
+    # 3. Ordenar cronológicamente el índice para garantizar que searchsorted funcione
+    precios_cierre_sesion.sort_index(inplace=True)
+
+# Reparar tabla de volúmenes de sesión
+if not volumenes_sesion.empty and 'Date' in volumenes_sesion.columns:
+    # 1. Convertir la columna de texto a formato Datetime real de Pandas
+    volumenes_sesion['Date'] = pd.to_datetime(volumenes_sesion['Date'])
+    # 2. Establecer la fecha como índice estructural
+    volumenes_sesion.set_index('Date', inplace=True)
+    # 3. Ordenar cronológicamente el índice
+    volumenes_sesion.sort_index(inplace=True)
+    
+    
+
 
 CAPITAL_POR_DEFECTO = 20000
 
