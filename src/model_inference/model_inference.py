@@ -66,7 +66,7 @@ pendientes_ayer = get_table_df('pending_trade')
 
 # --- 2. DESCARGAR PESOS DESDE S3 ---
 bucket_name = 'trained-neuronal-model'
-key = 'mi_modelo_entrenado.pth'
+key = 'NN_41_weights.pth'
 
 print(f"Descargando {key} desde S3...")
 buffer = io.BytesIO()
@@ -3933,7 +3933,7 @@ def obtener_metricas(
     ])
 
 class TradingSimulator:
-    def __init__(self,capital_inicial=20000,ventana=60,trailing=True,trailing_trigger_pct=0.02,
+    def __init__(self,capital_inicial=20000,ventana=30,trailing=True,trailing_trigger_pct=0.02,
                  usar_limite_exposicion=True,limite_exposicion_pct=0.05,perc_riesgo=0.005):
 
         self.capital_inicial       = capital_inicial
@@ -4615,7 +4615,7 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
 
 
 
-sim = TradingSimulator(capital_inicial=20000, ventana=60)
+sim = TradingSimulator(capital_inicial=20000, ventana=30)
 
 df_resultado, df_pendientes_resueltos = sim.ejecutar_dia(
     df_señales_hoy     = seynales_modelo,
