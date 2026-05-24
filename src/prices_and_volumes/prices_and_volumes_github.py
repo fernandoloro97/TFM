@@ -48,7 +48,7 @@ mapeo_alpaca = {'BF-B': 'BF.B', 'BRK-B': 'BRK.B'}
 lista_tickers = [mapeo_alpaca.get(item, item) for item in lista_tickers]
 
 # Lógica de Deletions (margen +1 día)
-hoy_simulado = datetime(2026, 5, 4) # Según tu ejemplo
+hoy_simulado = datetime(2026, 5, 15) # Según tu ejemplo
 todos_los_deletions = clean_changes_sp500[clean_changes_sp500['Action'] == 'Deletion']
 
 for _, fila in todos_los_deletions.iterrows():
@@ -59,7 +59,7 @@ for _, fila in todos_los_deletions.iterrows():
             lista_tickers.append(ticker)
 
 # --- 4. CONFIGURACIÓN DE DESCARGA ALPACA ---
-fecha_str = "2026-05-04"
+fecha_str = "2026-05-15"
 tz_ny = pytz.timezone("America/New_York")
 apertura_ny = tz_ny.localize(datetime.strptime(f"{fecha_str} 09:30:00", "%Y-%m-%d %H:%M:%S"))
 cierre_ny = tz_ny.localize(datetime.strptime(f"{fecha_str} 16:00:00", "%Y-%m-%d %H:%M:%S"))
@@ -197,9 +197,9 @@ if 'Date' in columnas_nuevas: columnas_nuevas.remove('Date')
 
 diccionario_hist = {}
 if columnas_nuevas:
-    print(f"\n✨ Nuevos tickers detectados: {columnas_nuevas}. Bajando 21 días...")
-    ref = pd.to_datetime("2026-05-04")
-    S_HIST = (ref - timedelta(days=21)).strftime('%Y-%m-%dT00:00:00Z')
+    print(f"\n✨ Nuevos tickers detectados: {columnas_nuevas}. Bajando 35 días...")
+    ref = pd.to_datetime("2026-05-15")
+    S_HIST = (ref - timedelta(days=35)).strftime('%Y-%m-%dT00:00:00Z')
     E_HIST = (ref - timedelta(days=1)).strftime('%Y-%m-%dT23:59:59Z')
     
     # for ticker in columnas_nuevas:
