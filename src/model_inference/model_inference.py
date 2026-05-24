@@ -147,7 +147,7 @@ def finalizar_dataframe(noticias):
     return df
 
 
-hoy = datetime(2026, 5, 6)
+hoy = datetime(2026, 5, 15)
 
 # 2. Calculamos las fechas relativas
 start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") # 2026-05-05
