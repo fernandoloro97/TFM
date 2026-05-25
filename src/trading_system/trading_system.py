@@ -1313,6 +1313,45 @@ else:
 
 
 # ==============================================================================
+# REPARAR Y CONFIGURAR TABLA DE PENDIENTES DE AYER (PENDING_TRADE)
+# ==============================================================================
+# Si la tabla tiene registros, aplicamos tipado estricto para no romper el simulador
+if not pendientes_ayer.empty:
+    print(f"¡Se encontraron {len(pendientes_ayer)} operaciones pendientes de ayer! Formateando...")
+    
+    # 1. Forzar conversión de la columna 'Date' a datetime real de Pandas
+    if 'Date' in pendientes_ayer.columns:
+        pendientes_ayer['Date'] = pd.to_datetime(pendientes_ayer['Date'])
+    
+    # 2. Convertir columnas de números enteros (IDs y contadores)
+    columnas_enteras = ['Fila Noticia', 'Pred_label', 'True_label', 'minuto_entrada']
+    for col in columnas_enteras:
+        if col in pendientes_ayer.columns:
+            pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').fillna(0).astype(int)
+            
+    # 3. Convertir columnas monetarias, precios y volúmenes (Floats con NaN permitidos)
+    columnas_decimales = [
+        'Prob_up', 'vol_media_10d', 'vol_1_porc', 'px_media_10d', 'px_std_10d', 
+        'cap_disponible', 'cap_riesgo', 'distancia_stop', 'cant_teorica_riesgo', 
+        'cant_limite_exposicion', 'cant_negociada', 'px_entrada', 'px_salida', 'pnl_unitario'
+    ]
+    for col in columnas_decimales:
+        if col in pendientes_ayer.columns:
+            pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').astype(float)
+            
+    # 4. Asegurar formato de texto para tickers y estado
+    if 'Tickers Mapeados' in pendientes_ayer.columns:
+        pendientes_ayer['Tickers Mapeados'] = pendientes_ayer['Tickers Mapeados'].astype(str)
+    if 'estado' in pendientes_ayer.columns:
+        pendientes_ayer['estado'] = pendientes_ayer['estado'].astype(str)
+
+    # 5. Reiniciar índice para eliminar residuos numéricos de DynamoDB
+    pendientes_ayer.reset_index(drop=True, inplace=True)
+else:
+    print("La tabla 'pending_trade' está vacía en DynamoDB. El simulador ignorará registros pasados.")
+    # Al dejarlo vacío, la condición 'None if pendientes_ayer.empty' del simulador funcionará perfectamente
+
+# ==============================================================================
 # INSTANCIA Y EJECUCIÓN DEL SIMULADOR
 # ==============================================================================
 # Pasamos la variable dinámica 'capital_hoy' en lugar del número fijo 20000
