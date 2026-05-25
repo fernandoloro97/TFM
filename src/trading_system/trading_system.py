@@ -1371,7 +1371,7 @@ dynamodb_client.create_table(
 )
 waiter = dynamodb_client.get_waiter("table_exists")
 waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
-table_pendientes = dynamodb_resource.Table(NOMBRE_TABLA_PENDIENTES)
+table_pendientes = dynamodb.Table(NOMBRE_TABLA_PENDIENTES)
 
 # 3. Preparar y subir datos solo si el DataFrame NO está vacío
 if df_pendientes.empty:
@@ -1417,7 +1417,7 @@ else:
 # PROCESO 2: GUARDAR DF_BALANCE EN "daily_balance" (ACUMULAR REGISTROS)
 # ==============================================================================
 NOMBRE_TABLA_BALANCE = "daily_balance"
-table_balance = dynamodb_resource.Table(NOMBRE_TABLA_BALANCE)
+table_balance = dynamodb.Table(NOMBRE_TABLA_BALANCE)
 
 if df_balance.empty:
     print("⚠️ Advertencia: 'df_balance' está vacío, omitiendo guardado contable.")
