@@ -180,7 +180,7 @@ jobs:
           ECR_REPOSITORY: ${{ matrix.repository }}
         run: |
           docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_3 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_4 \
             -f ${{ matrix.dockerfile }} .
 
       - name: Push Docker image
@@ -188,4 +188,4 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ matrix.repository }}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_3
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_4

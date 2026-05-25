@@ -26,13 +26,6 @@ def get_table_df(table_name):
     return pd.DataFrame(data)
 
 
-precios_cierre_sesion = get_table_df('sesion_close_prices')
-volumenes_sesion = get_table_df('sesion_volumes')
-pendientes_ayer = get_table_df('pending_trade')
-historico_balance = get_table_df('daily_balance')
-seynales_modelo = get_table_df('model_signals')
-
-
 def obtener_metricas(
     fila,
     df_vol,
@@ -1253,235 +1246,249 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
     return df[[c for c in cols_finales if c in df.columns]]
 
 
-# Reparar tabla de precios de cierre
-if not precios_cierre_sesion.empty and 'Date' in precios_cierre_sesion.columns:
-    precios_cierre_sesion['Date'] = pd.to_datetime(precios_cierre_sesion['Date'])
-    precios_cierre_sesion.set_index('Date', inplace=True)
-    precios_cierre_sesion.sort_index(inplace=True)
-    # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
-    precios_cierre_sesion = precios_cierre_sesion.apply(pd.to_numeric, errors='coerce')
+def handler(event, context):
 
-# Reparar tabla de volúmenes de sesión
-if not volumenes_sesion.empty and 'Date' in volumenes_sesion.columns:
-    volumenes_sesion['Date'] = pd.to_datetime(volumenes_sesion['Date'])
-    volumenes_sesion.set_index('Date', inplace=True)
-    volumenes_sesion.sort_index(inplace=True)
-    # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
-    volumenes_sesion = volumenes_sesion.apply(pd.to_numeric, errors='coerce')
-    
+    precios_cierre_sesion = get_table_df('sesion_close_prices')
+    volumenes_sesion = get_table_df('sesion_volumes')
+    pendientes_ayer = get_table_df('pending_trade')
+    historico_balance = get_table_df('daily_balance')
+    seynales_modelo = get_table_df('model_signals')
 
-CAPITAL_POR_DEFECTO = 20000
+    # Reparar tabla de precios de cierre
+    if not precios_cierre_sesion.empty and 'Date' in precios_cierre_sesion.columns:
+        precios_cierre_sesion['Date'] = pd.to_datetime(precios_cierre_sesion['Date'])
+        precios_cierre_sesion.set_index('Date', inplace=True)
+        precios_cierre_sesion.sort_index(inplace=True)
+        # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
+        precios_cierre_sesion = precios_cierre_sesion.apply(pd.to_numeric, errors='coerce')
 
-if historico_balance.empty:
-    print(f"La tabla 'daily_balance' está vacía. Usando capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
-    capital_hoy = CAPITAL_POR_DEFECTO
-else:
-    print("¡Histórico contable recuperado! Extrayendo el último capital disponible...")
-    # 1. Aseguramos que los valores sean numéricos
-    historico_balance['capital_cash'] = pd.to_numeric(historico_balance['capital_cash'])
-    
-    # 2. Ordenamos cronológicamente por fecha para garantizar que el último registro sea el de ayer
-    historico_balance = historico_balance.sort_values('fecha').reset_index(drop=True)
-    
-    # 3. Extraemos el último capital_cash registrado en la base de datos
-    capital_hoy = float(historico_balance['capital_cash'].iloc[-1])
-    print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
-    
-    
-# 2. Aplicar formateo estricto de tipos de datos (Corregido sin True_label)
-if not seynales_modelo.empty:
-    # Columna de Texto (String)
-    seynales_modelo['Tickers Mapeados'] = seynales_modelo['Tickers Mapeados'].astype(str)
-    
-    # Columnas de Números Enteros (Integers)
-    seynales_modelo['ID'] = pd.to_numeric(seynales_modelo['ID'], errors='coerce').astype(int)
-    seynales_modelo['Fila Noticia'] = pd.to_numeric(seynales_modelo['Fila Noticia'], errors='coerce').astype(int)
-    seynales_modelo['Pred_label'] = pd.to_numeric(seynales_modelo['Pred_label'], errors='coerce').astype(int)
-    
-    # Columna de Números Decimales (Float)
-    seynales_modelo['Prob_up'] = pd.to_numeric(seynales_modelo['Prob_up'], errors='coerce').astype(float)
-    
-    # Columna de Fecha y Hora (Datetime)
-    seynales_modelo['Date'] = pd.to_datetime(seynales_modelo['Date'])
-    
-    # Limpieza de índices: Descartar desorden de filas y reiniciar desde 0
-    seynales_modelo.reset_index(drop=True, inplace=True)
-else:
-    # Estructura vacía con tipos definidos por si no hay registros
-    columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label']
-    seynales_modelo = pd.DataFrame(columns=columnas)
+    # Reparar tabla de volúmenes de sesión
+    if not volumenes_sesion.empty and 'Date' in volumenes_sesion.columns:
+        volumenes_sesion['Date'] = pd.to_datetime(volumenes_sesion['Date'])
+        volumenes_sesion.set_index('Date', inplace=True)
+        volumenes_sesion.sort_index(inplace=True)
+        # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
+        volumenes_sesion = volumenes_sesion.apply(pd.to_numeric, errors='coerce')
+        
 
+    CAPITAL_POR_DEFECTO = 20000
 
-# ==============================================================================
-# REPARAR Y CONFIGURAR TABLA DE PENDIENTES DE AYER (PENDING_TRADE)
-# ==============================================================================
-# Si la tabla tiene registros, aplicamos tipado estricto para no romper el simulador
-if not pendientes_ayer.empty:
-    print(f"¡Se encontraron {len(pendientes_ayer)} operaciones pendientes de ayer! Formateando...")
-    
-    # 1. Forzar conversión de la columna 'Date' a datetime real de Pandas
-    if 'Date' in pendientes_ayer.columns:
-        pendientes_ayer['Date'] = pd.to_datetime(pendientes_ayer['Date'])
-    
-    # 2. Convertir columnas de números enteros (IDs y contadores)
-    columnas_enteras = ['Fila Noticia', 'Pred_label', 'True_label', 'minuto_entrada']
-    for col in columnas_enteras:
-        if col in pendientes_ayer.columns:
-            pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').fillna(0).astype(int)
-            
-    # 3. Convertir columnas monetarias, precios y volúmenes (Floats con NaN permitidos)
-    columnas_decimales = [
-        'Prob_up', 'vol_media_10d', 'vol_1_porc', 'px_media_10d', 'px_std_10d', 
-        'cap_disponible', 'cap_riesgo', 'distancia_stop', 'cant_teorica_riesgo', 
-        'cant_limite_exposicion', 'cant_negociada', 'px_entrada', 'px_salida', 'pnl_unitario'
-    ]
-    for col in columnas_decimales:
-        if col in pendientes_ayer.columns:
-            pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').astype(float)
-            
-    # 4. Asegurar formato de texto para tickers y estado
-    if 'Tickers Mapeados' in pendientes_ayer.columns:
-        pendientes_ayer['Tickers Mapeados'] = pendientes_ayer['Tickers Mapeados'].astype(str)
-    if 'estado' in pendientes_ayer.columns:
-        pendientes_ayer['estado'] = pendientes_ayer['estado'].astype(str)
-
-    # 5. Reiniciar índice para eliminar residuos numéricos de DynamoDB
-    pendientes_ayer.reset_index(drop=True, inplace=True)
-else:
-    print("La tabla 'pending_trade' está vacía en DynamoDB. El simulador ignorará registros pasados.")
-    # Al dejarlo vacío, la condición 'None if pendientes_ayer.empty' del simulador funcionará perfectamente
-
-# ==============================================================================
-# INSTANCIA Y EJECUCIÓN DEL SIMULADOR
-# ==============================================================================
-# Pasamos la variable dinámica 'capital_hoy' en lugar del número fijo 20000
-sim = TradingSimulator(capital_inicial=capital_hoy, ventana=30)
-
-# sim = TradingSimulator(capital_inicial=20000, ventana=30)
-
-df_resultado, df_pendientes_resueltos = sim.ejecutar_dia(
-    df_señales_hoy     = seynales_modelo,
-    # Si está vacío pasamos None, si tiene filas pasamos el DataFrame
-    df_pendientes_ayer = None if pendientes_ayer.empty else pendientes_ayer,
-    df_vol             = volumenes_sesion,
-    df_px              = precios_cierre_sesion,
-)
+    if historico_balance.empty:
+        print(f"La tabla 'daily_balance' está vacía. Usando capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
+        capital_hoy = CAPITAL_POR_DEFECTO
+    else:
+        print("¡Histórico contable recuperado! Extrayendo el último capital disponible...")
+        # 1. Aseguramos que los valores sean numéricos
+        historico_balance['capital_cash'] = pd.to_numeric(historico_balance['capital_cash'])
+        
+        # 2. Ordenamos cronológicamente por fecha para garantizar que el último registro sea el de ayer
+        historico_balance = historico_balance.sort_values('fecha').reset_index(drop=True)
+        
+        # 3. Extraemos el último capital_cash registrado en la base de datos
+        capital_hoy = float(historico_balance['capital_cash'].iloc[-1])
+        print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
+        
+        
+    # 2. Aplicar formateo estricto de tipos de datos (Corregido sin True_label)
+    if not seynales_modelo.empty:
+        # Columna de Texto (String)
+        seynales_modelo['Tickers Mapeados'] = seynales_modelo['Tickers Mapeados'].astype(str)
+        
+        # Columnas de Números Enteros (Integers)
+        seynales_modelo['ID'] = pd.to_numeric(seynales_modelo['ID'], errors='coerce').astype(int)
+        seynales_modelo['Fila Noticia'] = pd.to_numeric(seynales_modelo['Fila Noticia'], errors='coerce').astype(int)
+        seynales_modelo['Pred_label'] = pd.to_numeric(seynales_modelo['Pred_label'], errors='coerce').astype(int)
+        
+        # Columna de Números Decimales (Float)
+        seynales_modelo['Prob_up'] = pd.to_numeric(seynales_modelo['Prob_up'], errors='coerce').astype(float)
+        
+        # Columna de Fecha y Hora (Datetime)
+        seynales_modelo['Date'] = pd.to_datetime(seynales_modelo['Date'])
+        
+        # Limpieza de índices: Descartar desorden de filas y reiniciar desde 0
+        seynales_modelo.reset_index(drop=True, inplace=True)
+    else:
+        # Estructura vacía con tipos definidos por si no hay registros
+        columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label']
+        seynales_modelo = pd.DataFrame(columns=columnas)
 
 
-df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True)
-df_balance = sim.construir_balance(
-    df_todo,
-    precios_cierre_sesion,
-    fecha_inicio = datetime(2026, 5, 20).date()# <-- Usa solo date()
-)
-# Filtrar solo pendientes
-df_pendientes = df_todo[
-    df_todo['estado'].isin(['PENDIENTE_SALIR', 'PENDIENTE_ENTRAR'])
-].copy()
+    # ==============================================================================
+    # REPARAR Y CONFIGURAR TABLA DE PENDIENTES DE AYER (PENDING_TRADE)
+    # ==============================================================================
+    # Si la tabla tiene registros, aplicamos tipado estricto para no romper el simulador
+    if not pendientes_ayer.empty:
+        print(f"¡Se encontraron {len(pendientes_ayer)} operaciones pendientes de ayer! Formateando...")
+        
+        # 1. Forzar conversión de la columna 'Date' a datetime real de Pandas
+        if 'Date' in pendientes_ayer.columns:
+            pendientes_ayer['Date'] = pd.to_datetime(pendientes_ayer['Date'])
+        
+        # 2. Convertir columnas de números enteros (IDs y contadores)
+        columnas_enteras = ['Fila Noticia', 'Pred_label', 'True_label', 'minuto_entrada']
+        for col in columnas_enteras:
+            if col in pendientes_ayer.columns:
+                pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').fillna(0).astype(int)
+                
+        # 3. Convertir columnas monetarias, precios y volúmenes (Floats con NaN permitidos)
+        columnas_decimales = [
+            'Prob_up', 'vol_media_10d', 'vol_1_porc', 'px_media_10d', 'px_std_10d', 
+            'cap_disponible', 'cap_riesgo', 'distancia_stop', 'cant_teorica_riesgo', 
+            'cant_limite_exposicion', 'cant_negociada', 'px_entrada', 'px_salida', 'pnl_unitario'
+        ]
+        for col in columnas_decimales:
+            if col in pendientes_ayer.columns:
+                pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').astype(float)
+                
+        # 4. Asegurar formato de texto para tickers y estado
+        if 'Tickers Mapeados' in pendientes_ayer.columns:
+            pendientes_ayer['Tickers Mapeados'] = pendientes_ayer['Tickers Mapeados'].astype(str)
+        if 'estado' in pendientes_ayer.columns:
+            pendientes_ayer['estado'] = pendientes_ayer['estado'].astype(str)
 
+        # 5. Reiniciar índice para eliminar residuos numéricos de DynamoDB
+        pendientes_ayer.reset_index(drop=True, inplace=True)
+    else:
+        print("La tabla 'pending_trade' está vacía en DynamoDB. El simulador ignorará registros pasados.")
+        # Al dejarlo vacío, la condición 'None if pendientes_ayer.empty' del simulador funcionará perfectamente
 
-# ==============================================================================
-# PROCESO 1: GUARDAR DF_PENDIENTES EN "pending_trade" (REEMPLAZAR TABLA ENTERA)
-# ==============================================================================
-NOMBRE_TABLA_PENDIENTES = "pending_trade"
+    # ==============================================================================
+    # INSTANCIA Y EJECUCIÓN DEL SIMULADOR
+    # ==============================================================================
+    # Pasamos la variable dinámica 'capital_hoy' en lugar del número fijo 20000
+    sim = TradingSimulator(capital_inicial=capital_hoy, ventana=30)
 
-# 1. Borrar la tabla antigua para asegurar que no queden registros pasados
-try:
-    print(f"Eliminando tabla antigua '{NOMBRE_TABLA_PENDIENTES}'...")
-    dynamodb_client.delete_table(TableName=NOMBRE_TABLA_PENDIENTES)
-    waiter = dynamodb_client.get_waiter("table_not_exists")
-    waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
-except dynamodb_client.exceptions.ResourceNotFoundException:
-    pass
+    # sim = TradingSimulator(capital_inicial=20000, ventana=30)
 
-# 2. Recrear la tabla completamente limpia
-print(f"Creando nueva tabla limpia '{NOMBRE_TABLA_PENDIENTES}'...")
-dynamodb_client.create_table(
-    TableName=NOMBRE_TABLA_PENDIENTES,
-    KeySchema=[
-        {"AttributeName": "Tickers Mapeados", "KeyType": "HASH"},  # String
-        {"AttributeName": "Fila Noticia", "KeyType": "RANGE"},  # Number
-    ],
-    AttributeDefinitions=[
-        {"AttributeName": "Tickers Mapeados", "AttributeType": "S"},
-        {"AttributeName": "Fila Noticia", "AttributeType": "N"},
-    ],
-    BillingMode="PAY_PER_REQUEST",
-)
-waiter = dynamodb_client.get_waiter("table_exists")
-waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
-table_pendientes = dynamodb.Table(NOMBRE_TABLA_PENDIENTES)
-
-# 3. Preparar y subir datos solo si el DataFrame NO está vacío
-if df_pendientes.empty:
-    print(
-        f"El dataframe 'df_pendientes' está vacío. La tabla '{NOMBRE_TABLA_PENDIENTES}' quedará activa pero sin registros."
+    df_resultado, df_pendientes_resueltos = sim.ejecutar_dia(
+        df_señales_hoy     = seynales_modelo,
+        # Si está vacío pasamos None, si tiene filas pasamos el DataFrame
+        df_pendientes_ayer = None if pendientes_ayer.empty else pendientes_ayer,
+        df_vol             = volumenes_sesion,
+        df_px              = precios_cierre_sesion,
     )
-else:
-    df_p_prep = df_pendientes.copy()
 
-    # Formatear columnas problemáticas (Fechas, NaT y NaN)
-    for col in df_p_prep.columns:
-        # Detectar columnas de tipo fecha o marcas de tiempo
-        if pd.api.types.is_datetime64_any_dtype(df_p_prep[col]):
-            df_p_prep[col] = (
-                df_p_prep[col].astype(str).replace(["NaT", "NaN", "nat", "nan"], None)
-            )
 
-    # Convertir floats a tipo Decimal compatible con DynamoDB via JSON
-    df_p_json = df_p_prep.to_json(orient="records")
-    items_pendientes = json.loads(df_p_json, parse_float=Decimal)
+    df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True)
+    df_balance = sim.construir_balance(
+        df_todo,
+        precios_cierre_sesion,
+        fecha_inicio = datetime(2026, 5, 20).date()# <-- Usa solo date()
+    )
+    # Filtrar solo pendientes
+    df_pendientes = df_todo[
+        df_todo['estado'].isin(['PENDIENTE_SALIR', 'PENDIENTE_ENTRAR'])
+    ].copy()
 
-    print(f"Subiendo {len(items_pendientes)} registros a {NOMBRE_TABLA_PENDIENTES}...")
-    with table_pendientes.batch_writer() as batch:
-        for item in items_pendientes:
-            # Forzar tipos estrictos en las llaves primarias requeridas por AWS
-            item["Tickers Mapeados"] = str(item["Tickers Mapeados"])
-            item["Fila Noticia"] = int(item["Fila Noticia"])
 
-            # Filtro extremo: Elimina nulos, textos 'None', strings vacías o floats NaN remanentes
+    # ==============================================================================
+    # PROCESO 1: GUARDAR DF_PENDIENTES EN "pending_trade" (REEMPLAZAR TABLA ENTERA)
+    # ==============================================================================
+    NOMBRE_TABLA_PENDIENTES = "pending_trade"
+
+    # 1. Borrar la tabla antigua para asegurar que no queden registros pasados
+    try:
+        print(f"Eliminando tabla antigua '{NOMBRE_TABLA_PENDIENTES}'...")
+        dynamodb_client.delete_table(TableName=NOMBRE_TABLA_PENDIENTES)
+        waiter = dynamodb_client.get_waiter("table_not_exists")
+        waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
+    except dynamodb_client.exceptions.ResourceNotFoundException:
+        pass
+
+    # 2. Recrear la tabla completamente limpia
+    print(f"Creando nueva tabla limpia '{NOMBRE_TABLA_PENDIENTES}'...")
+    dynamodb_client.create_table(
+        TableName=NOMBRE_TABLA_PENDIENTES,
+        KeySchema=[
+            {"AttributeName": "Tickers Mapeados", "KeyType": "HASH"},  # String
+            {"AttributeName": "Fila Noticia", "KeyType": "RANGE"},  # Number
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "Tickers Mapeados", "AttributeType": "S"},
+            {"AttributeName": "Fila Noticia", "AttributeType": "N"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    waiter = dynamodb_client.get_waiter("table_exists")
+    waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
+    table_pendientes = dynamodb.Table(NOMBRE_TABLA_PENDIENTES)
+
+    # 3. Preparar y subir datos solo si el DataFrame NO está vacío
+    if df_pendientes.empty:
+        print(
+            f"El dataframe 'df_pendientes' está vacío. La tabla '{NOMBRE_TABLA_PENDIENTES}' quedará activa pero sin registros."
+        )
+    else:
+        df_p_prep = df_pendientes.copy()
+
+        # Formatear columnas problemáticas (Fechas, NaT y NaN)
+        for col in df_p_prep.columns:
+            # Detectar columnas de tipo fecha o marcas de tiempo
+            if pd.api.types.is_datetime64_any_dtype(df_p_prep[col]):
+                df_p_prep[col] = (
+                    df_p_prep[col].astype(str).replace(["NaT", "NaN", "nat", "nan"], None)
+                )
+
+        # Convertir floats a tipo Decimal compatible con DynamoDB via JSON
+        df_p_json = df_p_prep.to_json(orient="records")
+        items_pendientes = json.loads(df_p_json, parse_float=Decimal)
+
+        print(f"Subiendo {len(items_pendientes)} registros a {NOMBRE_TABLA_PENDIENTES}...")
+        with table_pendientes.batch_writer() as batch:
+            for item in items_pendientes:
+                # Forzar tipos estrictos en las llaves primarias requeridas por AWS
+                item["Tickers Mapeados"] = str(item["Tickers Mapeados"])
+                item["Fila Noticia"] = int(item["Fila Noticia"])
+
+                # Filtro extremo: Elimina nulos, textos 'None', strings vacías o floats NaN remanentes
+                item_limpio = {
+                    k: v
+                    for k, v in item.items()
+                    if v is not None
+                    and str(v) not in ["None", "NaN", "NaT", "nan", "nat"]
+                    and v != ""
+                }
+
+                batch.put_item(Item=item_limpio)
+        print("¡Tabla de pendientes actualizada con éxito!")
+
+
+    # ==============================================================================
+    # PROCESO 2: GUARDAR DF_BALANCE EN "daily_balance" (ACUMULAR REGISTROS)
+    # ==============================================================================
+    NOMBRE_TABLA_BALANCE = "daily_balance"
+    table_balance = dynamodb.Table(NOMBRE_TABLA_BALANCE)
+
+    if df_balance.empty:
+        print("⚠️ Advertencia: 'df_balance' está vacío, omitiendo guardado contable.")
+    else:
+        df_b_prep = df_balance.copy()
+
+        # Asegurar que la fecha contable sea texto plano
+        df_b_prep["fecha"] = df_b_prep["fecha"].astype(str)
+
+        # Convertir la fila única a tipos Decimal
+        df_b_json = df_b_prep.to_json(orient="records")
+        items_balance = json.loads(df_b_json, parse_float=Decimal)
+
+        print(f"Acumulando registro de balance diario en '{NOMBRE_TABLA_BALANCE}'...")
+        for item in items_balance:
+            item["fecha"] = str(item["fecha"])
+
+            # Limpieza estándar de nulos
             item_limpio = {
                 k: v
                 for k, v in item.items()
-                if v is not None
-                and str(v) not in ["None", "NaN", "NaT", "nan", "nat"]
-                and v != ""
+                if v is not None and str(v) not in ["None", "NaN", "nan"]
             }
 
-            batch.put_item(Item=item_limpio)
-    print("¡Tabla de pendientes actualizada con éxito!")
+            # Inserta o sobreescribe el día actual sin alterar el historial contable previo
+            table_balance.put_item(Item=item_limpio)
 
-
-# ==============================================================================
-# PROCESO 2: GUARDAR DF_BALANCE EN "daily_balance" (ACUMULAR REGISTROS)
-# ==============================================================================
-NOMBRE_TABLA_BALANCE = "daily_balance"
-table_balance = dynamodb.Table(NOMBRE_TABLA_BALANCE)
-
-if df_balance.empty:
-    print("⚠️ Advertencia: 'df_balance' está vacío, omitiendo guardado contable.")
-else:
-    df_b_prep = df_balance.copy()
-
-    # Asegurar que la fecha contable sea texto plano
-    df_b_prep["fecha"] = df_b_prep["fecha"].astype(str)
-
-    # Convertir la fila única a tipos Decimal
-    df_b_json = df_b_prep.to_json(orient="records")
-    items_balance = json.loads(df_b_json, parse_float=Decimal)
-
-    print(f"Acumulando registro de balance diario en '{NOMBRE_TABLA_BALANCE}'...")
-    for item in items_balance:
-        item["fecha"] = str(item["fecha"])
-
-        # Limpieza estándar de nulos
-        item_limpio = {
-            k: v
-            for k, v in item.items()
-            if v is not None and str(v) not in ["None", "NaN", "nan"]
-        }
-
-        # Inserta o sobreescribe el día actual sin alterar el historial contable previo
-        table_balance.put_item(Item=item_limpio)
-
-    print(f"¡Balance del día {df_b_prep['fecha'].iloc[0]} guardado correctamente!")
+        print(f"¡Balance del día {df_b_prep['fecha'].iloc[0]} guardado correctamente!")
+        
+    # Retorno exitoso que requiere AWS Lambda
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Simulación y persistencia completadas exitosamente.')
+    }
