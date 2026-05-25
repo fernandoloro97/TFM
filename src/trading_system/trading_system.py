@@ -1333,7 +1333,7 @@ df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True
 df_balance = sim.construir_balance(
     df_todo,
     precios_cierre_sesion,
-    fecha_inicio = datetime(2026, 5, 15).date()# <-- Usa solo date()
+    fecha_inicio = datetime(2026, 5, 20).date()# <-- Usa solo date()
 )
 # Filtrar solo pendientes
 df_pendientes = df_todo[
