@@ -137,17 +137,17 @@ pl_ratio = abs(avg_ganancia / avg_perdida) if avg_perdida != 0 else 0
 col_izq, col_der = st.columns([2, 1])
 
 with col_izq:
-    st.subheader(f"📈 Evolución del Patrimonio Neto (Hasta {fecha_seleccionada})")
+    st.subheader(f"Evolución del Patrimonio Neto (Hasta {fecha_seleccionada})")
     
-    # Crear el gráfico con Plotly Express
     fig = px.line(df_filtrado, x='fecha', y='equity_total', markers=True,
                   labels={'fecha': 'Fecha', 'equity_total': 'Patrimonio Total ($)'},
                   template="plotly_dark")
     
-    # CORRECCIÓN AQUÍ: Usamos un diccionario para pasar los estilos de línea de forma estricta
     fig.update_traces(line=dict(color='#00FFCC', width=3))
     
-    # Renderizar en Streamlit
+    # 💡 TRUCO CLAVE: Fuerza al eje X a ser texto plano, eliminando las horas (00:00)
+    fig.update_xaxes(type='category')
+    
     st.plotly_chart(fig, use_container_width=True)
 
 with col_der:
@@ -161,8 +161,10 @@ with col_der:
     })
     st.table(df_tabla_contable.set_index('Métrica'))
 
-st.separator()
-st.subheader(f"📋 Matriz de Métricas Avanzadas del Periodo (Acumulado hasta {fecha_seleccionada})")
+# Cambia st.separator() por el método oficial:
+st.divider() 
+
+st.subheader(f"Matriz de Métricas Avanzadas del Periodo (Acumulado hasta {fecha_seleccionada})")
 
 # Tabla 2: Métricas de rendimiento y riesgo del periodo filtrado
 df_tabla_metricas = pd.DataFrame({
