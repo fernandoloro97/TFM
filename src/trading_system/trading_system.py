@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 import json
 import boto3
@@ -1368,12 +1368,20 @@ def handler(event, context):
         df_px              = precios_cierre_sesion,
     )
 
+    # 1. Capturamos la fecha y hora actual del sistema (Ej: Martes a las 08:00 AM UTC)
+    hoy = datetime.now()
+    
+    # 2. Restamos 1 día para obtener la fecha de la sesión que queremos balancear (Ej: Lunes)
+    fecha_ayer = (hoy - timedelta(days=1)).date()
+    
+    print(f"Generando balance contable para la sesión del día anterior: {fecha_ayer}")
 
     df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True)
     df_balance = sim.construir_balance(
         df_todo,
         precios_cierre_sesion,
-        fecha_inicio = datetime(2026, 5, 22).date()
+        # fecha_inicio = datetime(2026, 5, 22).date()
+        fecha_inicio = fecha_ayer
     )
     
     if not df_todo.empty and 'estado' in df_todo.columns:
