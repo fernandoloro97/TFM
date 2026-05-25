@@ -2281,841 +2281,849 @@ def get_tickers(row):
         # Ahora el set() no fallará
         return list(set(tickers_sector) & set(tickers_news))
 
-inputs_totales_por_rol["Tickers Mapeados"] = inputs_totales_por_rol.apply(get_tickers, axis=1)
+if not inputs_totales_por_rol.empty:
+    
+    inputs_totales_por_rol["Tickers Mapeados"] = inputs_totales_por_rol.apply(get_tickers, axis=1)
 
-# Verifico que no haya listas vacias y me quedo con las que si tienen elementos
-inputs_totales_por_rol = inputs_totales_por_rol[
-    inputs_totales_por_rol["Tickers Mapeados"].map(lambda x: len(x) > 0 if isinstance(x, list) else False)
-]
+    # Verifico que no haya listas vacias y me quedo con las que si tienen elementos
+    inputs_totales_por_rol = inputs_totales_por_rol[
+        inputs_totales_por_rol["Tickers Mapeados"].map(lambda x: len(x) > 0 if isinstance(x, list) else False)
+    ]
 
-inputs_totales_por_rol = inputs_totales_por_rol.reset_index(drop=True)
+    inputs_totales_por_rol = inputs_totales_por_rol.reset_index(drop=True)
 
-def normalize_text(text):
-    if pd.isna(text):
+    def normalize_text(text):
+        if pd.isna(text):
+            return text
+
+        # minúsculas
+        text = text.lower()
+
+        # reemplazar underscores
+        text = text.replace("_", " ")
+
+        # quitar acentos / caracteres raros
+        text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8")
+
+        # quitar espacios extra
+        text = re.sub(r"\s+", " ", text).strip()
+
         return text
 
-    # minúsculas
-    text = text.lower()
+    def clean_status(text):
+        text = normalize_text(text)
 
-    # reemplazar underscores
-    text = text.replace("_", " ")
+        if text is None:
+            return text
 
-    # quitar acentos / caracteres raros
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8")
+        # reglas
+        if "speculative" in text:
+            return "speculative"
 
-    # quitar espacios extra
-    text = re.sub(r"\s+", " ", text).strip()
+        if "progress" in text:
+            return "in progress"
 
-    return text
+        if "confirmed" in text:
+            if "positive" in text:
+                return "confirmed positive"
+            elif "negative" in text:
+                return "confirmed negative"
+            else:
+                return "confirmed neutral"
 
-def clean_status(text):
-    text = normalize_text(text)
-
-    if text is None:
         return text
 
-    # reglas
-    if "speculative" in text:
-        return "speculative"
+    inputs_totales_por_rol["Status"] = inputs_totales_por_rol["Status"].apply(clean_status)
 
-    if "progress" in text:
-        return "in progress"
-
-    if "confirmed" in text:
-        if "positive" in text:
-            return "confirmed positive"
-        elif "negative" in text:
-            return "confirmed negative"
-        else:
-            return "confirmed neutral"
-
-    return text
-
-inputs_totales_por_rol["Status"] = inputs_totales_por_rol["Status"].apply(clean_status)
-
-mask_error = (
-    ~inputs_totales_por_rol["Verbo"].apply(lambda x: isinstance(x, str))  # no es string
-    |
-    inputs_totales_por_rol["Verbo"].astype(str).str.contains(",")        # tiene coma
-)
-
-df_verbos_problematicos = inputs_totales_por_rol[mask_error]
-
-inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo"].apply(
-    lambda x: x.split(",")[0].strip() if isinstance(x, str) else x
-)
-
-true_values = (
-    inputs_totales_por_rol[inputs_totales_por_rol["Mencionado"] == True]
-    .groupby(["Fila Noticia", "Evento"])
-    .agg({
-        "Verbo": "first",
-        "Contexto": "first",
-        "Status": "first"
-    })
-    .rename(columns={
-        "Verbo": "Verbo_true",
-        "Contexto": "Contexto_true",
-        "Status": "Status_true"
-    })
-    .reset_index()
-)
-
-inputs_totales_por_rol = inputs_totales_por_rol.merge(
-    true_values,
-    on=["Fila Noticia", "Evento"],
-    how="left"
-)
-
-inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol.apply(
-    lambda x: x["Verbo_true"] if pd.notna(x["Verbo_true"]) else x["Verbo"],
-    axis=1
-)
-
-inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol.apply(
-    lambda x: x["Contexto_true"] if pd.notna(x["Contexto_true"]) else x["Contexto"],
-    axis=1
-)
-
-inputs_totales_por_rol["Status"] = inputs_totales_por_rol.apply(
-    lambda x: x["Status_true"] if pd.notna(x["Status_true"]) else x["Status"],
-    axis=1
-)
-
-inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_true", "Contexto_true", "Status_true"])
-
-
-def extract_main_verbs_batch(phrases, client):
-
-    if isinstance(phrases, str):
-        phrases = [phrases]
-
-    numbered = "\n".join([f"{i+1}. {p}" for i, p in enumerate(phrases)])
-
-    prompt = f"""You are a linguistic expert in Syntax and Semantics.
-
-Your goal is to isolate the HEAD VERB of each phrase.
-
-CORE LOGIC:
-1. IDENTIFY THE HEAD: Locate the primary action. If there is a chain of verbs (e.g., "agree to pay"), the final action verb is the head.
-2. PHRASAL VS. TRANSITIVE:
-   - Keep particles ONLY if they are part of a Phrasal Verb (e.g., "carry out", "set up").
-   - Discard all Objects, Nouns, Adjectives, and Adverbs. A verb should never be followed by a noun in your output.
-3. STRIP MODIFIERS: Remove all "junk" surrounding the verb, including articles (a, an, the) and prepositional phrases that act as objects.
-4. LEMMATIZE: Always return the verb in its dictionary infinitive form (e.g., "fund").
-
-NEGATIVE CONSTRAINTS:
-- No nouns in the output (unless part of a rare compound verb).
-- No auxiliary/modal verbs if a main action follows.
-
-Respond ONLY with a JSON array:
-[
-  {{"text": "...", "verb": "..."}}
-]
-
-Phrases:
-{numbered}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1000,
-        temperature=0
+    mask_error = (
+        ~inputs_totales_por_rol["Verbo"].apply(lambda x: isinstance(x, str))  # no es string
+        |
+        inputs_totales_por_rol["Verbo"].astype(str).str.contains(",")        # tiene coma
     )
 
-    text = response.choices[0].message.content.strip()
-    results = json.loads(text)
+    df_verbos_problematicos = inputs_totales_por_rol[mask_error]
 
-    return results
+    inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo"].apply(
+        lambda x: x.split(",")[0].strip() if isinstance(x, str) else x
+    )
 
-verbs = (
-    inputs_totales_por_rol["Verbo"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .unique()
-)
+    true_values = (
+        inputs_totales_por_rol[inputs_totales_por_rol["Mencionado"] == True]
+        .groupby(["Fila Noticia", "Evento"])
+        .agg({
+            "Verbo": "first",
+            "Contexto": "first",
+            "Status": "first"
+        })
+        .rename(columns={
+            "Verbo": "Verbo_true",
+            "Contexto": "Contexto_true",
+            "Status": "Status_true"
+        })
+        .reset_index()
+    )
 
-verbs = list(verbs)
-len(list(verbs))
+    inputs_totales_por_rol = inputs_totales_por_rol.merge(
+        true_values,
+        on=["Fila Noticia", "Evento"],
+        how="left"
+    )
 
-api_keys = ["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", "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"]  # puedes añadir más
-clients = [Groq(api_key=k) for k in api_keys]
+    inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol.apply(
+        lambda x: x["Verbo_true"] if pd.notna(x["Verbo_true"]) else x["Verbo"],
+        axis=1
+    )
 
-def split_list(lst, n):
-    k, m = divmod(len(lst), n)
-    return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
+    inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol.apply(
+        lambda x: x["Contexto_true"] if pd.notna(x["Contexto_true"]) else x["Contexto"],
+        axis=1
+    )
 
-verb_parts = split_list(verbs, len(clients))
+    inputs_totales_por_rol["Status"] = inputs_totales_por_rol.apply(
+        lambda x: x["Status_true"] if pd.notna(x["Status_true"]) else x["Status"],
+        axis=1
+    )
 
-def chunk_list(lst, size=50):
-    for i in range(0, len(lst), size):
-        yield lst[i:i + size]
+    inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_true", "Contexto_true", "Status_true"])
 
-all_results = []
 
-for idx, (client, verb_subset) in enumerate(zip(clients, verb_parts)):
-    print(f"\n Procesando parte {idx+1} con API key {idx+1}")
+    def extract_main_verbs_batch(phrases, client):
 
-    chunks = list(chunk_list(verb_subset, 50))
+        if isinstance(phrases, str):
+            phrases = [phrases]
 
-    for i, chunk in enumerate(chunks):
+        numbered = "\n".join([f"{i+1}. {p}" for i, p in enumerate(phrases)])
+
+        prompt = f"""You are a linguistic expert in Syntax and Semantics.
+
+    Your goal is to isolate the HEAD VERB of each phrase.
+
+    CORE LOGIC:
+    1. IDENTIFY THE HEAD: Locate the primary action. If there is a chain of verbs (e.g., "agree to pay"), the final action verb is the head.
+    2. PHRASAL VS. TRANSITIVE:
+    - Keep particles ONLY if they are part of a Phrasal Verb (e.g., "carry out", "set up").
+    - Discard all Objects, Nouns, Adjectives, and Adverbs. A verb should never be followed by a noun in your output.
+    3. STRIP MODIFIERS: Remove all "junk" surrounding the verb, including articles (a, an, the) and prepositional phrases that act as objects.
+    4. LEMMATIZE: Always return the verb in its dictionary infinitive form (e.g., "fund").
+
+    NEGATIVE CONSTRAINTS:
+    - No nouns in the output (unless part of a rare compound verb).
+    - No auxiliary/modal verbs if a main action follows.
+
+    Respond ONLY with a JSON array:
+    [
+    {{"text": "...", "verb": "..."}}
+    ]
+
+    Phrases:
+    {numbered}
+    """
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000,
+            temperature=0
+        )
+
+        text = response.choices[0].message.content.strip()
+        results = json.loads(text)
+
+        return results
+
+    verbs = (
+        inputs_totales_por_rol["Verbo"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
+
+    verbs = list(verbs)
+    len(list(verbs))
+
+    api_keys = ["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", "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"]  # puedes añadir más
+    clients = [Groq(api_key=k) for k in api_keys]
+
+    def split_list(lst, n):
+        k, m = divmod(len(lst), n)
+        return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
+
+    verb_parts = split_list(verbs, len(clients))
+
+    def chunk_list(lst, size=50):
+        for i in range(0, len(lst), size):
+            yield lst[i:i + size]
+
+    all_results = []
+
+    for idx, (client, verb_subset) in enumerate(zip(clients, verb_parts)):
+        print(f"\n Procesando parte {idx+1} con API key {idx+1}")
+
+        chunks = list(chunk_list(verb_subset, 50))
+
+        for i, chunk in enumerate(chunks):
+            try:
+                results = extract_main_verbs_batch(chunk, client)
+                all_results.extend(results)
+
+                print(f"Parte {idx+1} → Batch {i+1}/{len(chunks)}")
+
+            except Exception as e:
+                print(f"Error en parte {idx+1}, batch {i}: {e}")
+                continue
+
+    verbos_procesados = pd.DataFrame(all_results)
+
+    verbos_procesados = verbos_procesados.rename(columns={
+        "text": "Verbo",
+        "verb": "Verbo_Limpio"
+    })
+
+    inputs_totales_por_rol = inputs_totales_por_rol.merge(
+        verbos_procesados,
+        on="Verbo",
+        how="left"
+    )
+    inputs_totales_por_rol
+
+    verbs_missing = (
+        inputs_totales_por_rol[
+            inputs_totales_por_rol["Verbo_Limpio"].isna()
+        ]["Verbo"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
+
+    verbs_missing = list(verbs_missing)
+
+    missing_results = []
+    client = Groq(api_key="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")
+    # batches pequeños = más fiable
+    def chunk_list(lst, size=50):
+        for i in range(0, len(lst), size):
+            yield lst[i:i + size]
+
+    for chunk in chunk_list(verbs_missing, 20):
         try:
             results = extract_main_verbs_batch(chunk, client)
-            all_results.extend(results)
 
-            print(f"Parte {idx+1} → Batch {i+1}/{len(chunks)}")
+            # IMPORTANTE: mapear por texto
+            mapping = {r["text"]: r["verb"] for r in results}
+
+            for v in chunk:
+                missing_results.append({
+                    "Verbo": v,
+                    "Verbo_Limpio": mapping.get(v, None)
+                })
 
         except Exception as e:
-            print(f"Error en parte {idx+1}, batch {i}: {e}")
-            continue
-
-verbos_procesados = pd.DataFrame(all_results)
-
-verbos_procesados = verbos_procesados.rename(columns={
-    "text": "Verbo",
-    "verb": "Verbo_Limpio"
-})
-
-inputs_totales_por_rol = inputs_totales_por_rol.merge(
-    verbos_procesados,
-    on="Verbo",
-    how="left"
-)
-inputs_totales_por_rol
-
-verbs_missing = (
-    inputs_totales_por_rol[
-        inputs_totales_por_rol["Verbo_Limpio"].isna()
-    ]["Verbo"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .unique()
-)
-
-verbs_missing = list(verbs_missing)
-
-missing_results = []
-client = Groq(api_key="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")
-# batches pequeños = más fiable
-def chunk_list(lst, size=50):
-    for i in range(0, len(lst), size):
-        yield lst[i:i + size]
-
-for chunk in chunk_list(verbs_missing, 20):
-    try:
-        results = extract_main_verbs_batch(chunk, client)
-
-        # IMPORTANTE: mapear por texto
-        mapping = {r["text"]: r["verb"] for r in results}
-
-        for v in chunk:
-            missing_results.append({
-                "Verbo": v,
-                "Verbo_Limpio": mapping.get(v, None)
-            })
-
-    except Exception as e:
-        print(f"Error en batch: {e}")
+            print(f"Error en batch: {e}")
 
 
-verbos_no_procesados = pd.DataFrame(missing_results)
+    verbos_no_procesados = pd.DataFrame(missing_results)
 
-# Verificación de seguridad: ¿Existe el DataFrame y tiene filas?
-if not verbos_no_procesados.empty:
-    # 1. Identificar filas donde Verbo_Limpio es NaN
-    mask = verbos_no_procesados['Verbo_Limpio'].isna()
-    verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
+    # Verificación de seguridad: ¿Existe el DataFrame y tiene filas?
+    if not verbos_no_procesados.empty:
+        # 1. Identificar filas donde Verbo_Limpio es NaN
+        mask = verbos_no_procesados['Verbo_Limpio'].isna()
+        verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
 
-    # Solo ejecutamos si realmente hay verbos pendientes (verbo_sucio no está vacía)
-    if verbo_sucio:
-        # 2. Obtener resultados del modelo
-        resultados = extract_main_verbs_batch(verbo_sucio, client)
+        # Solo ejecutamos si realmente hay verbos pendientes (verbo_sucio no está vacía)
+        if verbo_sucio:
+            # 2. Obtener resultados del modelo
+            resultados = extract_main_verbs_batch(verbo_sucio, client)
 
-        # 3. Extraer solo los verbos limpios
-        verbos_ordenados = [item['verb'] for item in resultados]
+            # 3. Extraer solo los verbos limpios
+            verbos_ordenados = [item['verb'] for item in resultados]
 
-        # 4. Asignar directamente a las filas filtradas
-        verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
+            # 4. Asignar directamente a las filas filtradas
+            verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
 
-        print(f"Actualización completada: {len(verbos_ordenados)} verbos procesados.")
+            print(f"Actualización completada: {len(verbos_ordenados)} verbos procesados.")
+        else:
+            print("No hay filas con Verbo_Limpio pendiente (NaN).")
     else:
-        print("No hay filas con Verbo_Limpio pendiente (NaN).")
-else:
-    print("El DataFrame 'verbos_no_procesados' está vacío. Saltando paso.")
+        print("El DataFrame 'verbos_no_procesados' está vacío. Saltando paso.")
 
 
-# Aseguramos que si está vacío, al menos tenga las columnas necesarias para el join
-columnas_requeridas = ['Verbo', 'Verbo_Limpio']
+    # Aseguramos que si está vacío, al menos tenga las columnas necesarias para el join
+    columnas_requeridas = ['Verbo', 'Verbo_Limpio']
 
-if verbos_no_procesados.empty:
-    # Si está vacío, nos aseguramos de que tenga las columnas para que set_index('Verbo') no falle
-    for col in columnas_requeridas:
-        if col not in verbos_no_procesados.columns:
-            verbos_no_procesados[col] = None
-else:
-    # ... aquí va el bloque de código de procesamiento con el 'if verbo_sucio' que vimos antes ...
-    mask = verbos_no_procesados['Verbo_Limpio'].isna()
-    verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
+    if verbos_no_procesados.empty:
+        # Si está vacío, nos aseguramos de que tenga las columnas para que set_index('Verbo') no falle
+        for col in columnas_requeridas:
+            if col not in verbos_no_procesados.columns:
+                verbos_no_procesados[col] = None
+    else:
+        # ... aquí va el bloque de código de procesamiento con el 'if verbo_sucio' que vimos antes ...
+        mask = verbos_no_procesados['Verbo_Limpio'].isna()
+        verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
 
-    if verbo_sucio:
-        resultados = extract_main_verbs_batch(verbo_sucio, client)
-        verbos_ordenados = [item['verb'] for item in resultados]
-        verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
+        if verbo_sucio:
+            resultados = extract_main_verbs_batch(verbo_sucio, client)
+            verbos_ordenados = [item['verb'] for item in resultados]
+            verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
 
-# Ahora este bloque SIEMPRE funcionará sin errores de "KeyError: 'Verbo'"
-df1 = verbos_procesados.set_index('Verbo')
-df2 = verbos_no_procesados.set_index('Verbo')
+    # Ahora este bloque SIEMPRE funcionará sin errores de "KeyError: 'Verbo'"
+    df1 = verbos_procesados.set_index('Verbo')
+    df2 = verbos_no_procesados.set_index('Verbo')
 
-verbos_procesados_finales = df1.combine_first(df2).reset_index()
+    verbos_procesados_finales = df1.combine_first(df2).reset_index()
 
-inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
+    inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
 
-inputs_totales_por_rol = inputs_totales_por_rol.merge(
-    verbos_procesados_finales,
-    on="Verbo",
-    how="left"
-)
-
-inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo_Limpio"]
-inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
-
-def extract_main_context_batch(phrases, client):
-
-    if isinstance(phrases, str):
-        phrases = [phrases]
-
-    numbered = "\n".join([f"{i+1}. {p}" for i, p in enumerate(phrases)])
-
-    prompt = f"""You are an expert in semantic abstraction and information compression.
-
-Your goal is to transform each input into ONE SINGLE, HIGH-LEVEL CONTEXT.
-
-CORE LOGIC:
-1. GENERALIZE: Convert specific phrases into a broad, generic concept.
-   - Example: "stimulus plan, obamacare marketplaces" → "government policy"
-   - Example: "brexit regulations, tariffs" → "trade regulation"
-
-2. MERGE MULTIPLE ELEMENTS:
-   - If multiple items are separated by commas, DO NOT keep them separate.
-   - Combine them into ONE unified concept.
-
-3. REMOVE SPECIFICITY:
-   - Eliminate names, brands, events, and detailed descriptions.
-   - Avoid long phrases. Keep it short (1–3 words ideally).
-
-4. ABSTRACT UPWARD:
-   - Always move to a higher-level category (industry, policy, operations, demand, supply, regulation, etc.).
-
-5. SINGLE OUTPUT ONLY:
-   - Even if the input tenga varios elementos → SOLO UN contexto final.
-
-6. LOWERCASE OUTPUT:
-   - The context MUST be entirely in lowercase.
-
-NEGATIVE CONSTRAINTS:
-- No commas in output
-- No long phrases
-- No specific entities (e.g., "Obamacare", "Brexit")
-- No duplication of input wording unless already abstract
-- Output must be lowercase only
-
-OUTPUT FORMAT (JSON array):
-[
-  {{"text": "...", "context": "..."}}
-]
-
-Inputs:
-{numbered}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1000,
-        temperature=0
+    inputs_totales_por_rol = inputs_totales_por_rol.merge(
+        verbos_procesados_finales,
+        on="Verbo",
+        how="left"
     )
 
-    text = response.choices[0].message.content.strip()
-    results = json.loads(text)
+    inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo_Limpio"]
+    inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
 
-    return results
+    def extract_main_context_batch(phrases, client):
 
-api_keys = ["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", "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", "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", "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"]  # puedes añadir más
-clients = [Groq(api_key=k) for k in api_keys]
+        if isinstance(phrases, str):
+            phrases = [phrases]
 
-contexts = (
-    inputs_totales_por_rol["Contexto"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .unique()
-)
+        numbered = "\n".join([f"{i+1}. {p}" for i, p in enumerate(phrases)])
 
-contexts = list(contexts)
+        prompt = f"""You are an expert in semantic abstraction and information compression.
 
-def split_list(lst, n):
-    k, m = divmod(len(lst), n)
-    return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
+    Your goal is to transform each input into ONE SINGLE, HIGH-LEVEL CONTEXT.
 
-context_parts = split_list(contexts, len(clients))
+    CORE LOGIC:
+    1. GENERALIZE: Convert specific phrases into a broad, generic concept.
+    - Example: "stimulus plan, obamacare marketplaces" → "government policy"
+    - Example: "brexit regulations, tariffs" → "trade regulation"
 
-def chunk_list(lst, size=50):
-    for i in range(0, len(lst), size):
-        yield lst[i:i + size]
+    2. MERGE MULTIPLE ELEMENTS:
+    - If multiple items are separated by commas, DO NOT keep them separate.
+    - Combine them into ONE unified concept.
 
-all_results = []
+    3. REMOVE SPECIFICITY:
+    - Eliminate names, brands, events, and detailed descriptions.
+    - Avoid long phrases. Keep it short (1–3 words ideally).
 
-for idx, (client, context_subset) in enumerate(zip(clients, context_parts)):
-    print(f"\n Procesando parte {idx+1} con API key {idx+1}")
+    4. ABSTRACT UPWARD:
+    - Always move to a higher-level category (industry, policy, operations, demand, supply, regulation, etc.).
 
-    chunks = list(chunk_list(context_subset, 50))
+    5. SINGLE OUTPUT ONLY:
+    - Even if the input tenga varios elementos → SOLO UN contexto final.
 
-    for i, chunk in enumerate(chunks):
-        try:
-            results = extract_main_context_batch(chunk, client)
-            all_results.extend(results)
+    6. LOWERCASE OUTPUT:
+    - The context MUST be entirely in lowercase.
 
-            print(f"Parte {idx+1} → Batch {i+1}/{len(chunks)}")
+    NEGATIVE CONSTRAINTS:
+    - No commas in output
+    - No long phrases
+    - No specific entities (e.g., "Obamacare", "Brexit")
+    - No duplication of input wording unless already abstract
+    - Output must be lowercase only
 
-        except Exception as e:
-            print(f"Error en parte {idx+1}, batch {i}: {e}")
-            continue
+    OUTPUT FORMAT (JSON array):
+    [
+    {{"text": "...", "context": "..."}}
+    ]
 
-contextos_procesados = pd.DataFrame(all_results)
+    Inputs:
+    {numbered}
+    """
 
-contextos_procesados = contextos_procesados.rename(columns={
-    "text": "Contexto",
-    "context": "Contexto_Limpio"
-})
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000,
+            temperature=0
+        )
 
-inputs_totales_por_rol = inputs_totales_por_rol.merge(
-    contextos_procesados,
-    on="Contexto",
-    how="left"
-)
+        text = response.choices[0].message.content.strip()
+        results = json.loads(text)
 
-contexts_missing = (
-    inputs_totales_por_rol[
-        inputs_totales_por_rol["Contexto_Limpio"].isna()
-    ]["Contexto"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .unique()
-)
+        return results
 
-contexts_missing = list(contexts_missing)
+    api_keys = ["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", "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", "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", "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"]  # puedes añadir más
+    clients = [Groq(api_key=k) for k in api_keys]
 
-missing_results = []
-client = Groq(api_key="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")
-# batches pequeños = más fiable
-def chunk_list(lst, size=50):
-    for i in range(0, len(lst), size):
-        yield lst[i:i + size]
+    contexts = (
+        inputs_totales_por_rol["Contexto"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
 
-for chunk in chunk_list(contexts_missing, 20):
-    try:
-        results = extract_main_context_batch(chunk, client)
+    contexts = list(contexts)
 
-        # IMPORTANTE: mapear por texto
-        mapping = {r["text"]: r["context"] for r in results}
+    def split_list(lst, n):
+        k, m = divmod(len(lst), n)
+        return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
-        for v in chunk:
-            missing_results.append({
-                "Contexto": v,
-                "Contexto_Limpio": mapping.get(v, None)
-            })
+    context_parts = split_list(contexts, len(clients))
 
-    except Exception as e:
-        print(f"Error en batch: {e}")
+    def chunk_list(lst, size=50):
+        for i in range(0, len(lst), size):
+            yield lst[i:i + size]
 
-contextos_no_procesados = pd.DataFrame(missing_results)
+    all_results = []
 
-# Aseguramos que existan las columnas mínimas para que el flujo no se rompa
-for col in ['Contexto', 'Contexto_Limpio']:
-    if col not in contextos_no_procesados.columns:
-        contextos_no_procesados[col] = None
+    for idx, (client, context_subset) in enumerate(zip(clients, context_parts)):
+        print(f"\n Procesando parte {idx+1} con API key {idx+1}")
 
-if not contextos_no_procesados.empty:
-    # 1. Identificar filas con Contexto_Limpio pendiente
-    mask = contextos_no_procesados['Contexto_Limpio'].isna()
-    contexto_sucio = contextos_no_procesados.loc[mask, 'Contexto'].tolist()
+        chunks = list(chunk_list(context_subset, 50))
 
-    if contexto_sucio:
-        # 2. Obtener resultados (Llamada al batch de contexto)
-        resultados = extract_main_context_batch(contexto_sucio, client)
+        for i, chunk in enumerate(chunks):
+            try:
+                results = extract_main_context_batch(chunk, client)
+                all_results.extend(results)
 
-        # 3. Extraer solo los contextos limpios manteniendo el orden
-        contextos_ordenados = [item['context'] for item in resultados]
+                print(f"Parte {idx+1} → Batch {i+1}/{len(chunks)}")
 
-        # 4. Asignar directamente
-        contextos_no_procesados.loc[mask, 'Contexto_Limpio'] = contextos_ordenados
-        print(f"Actualización completada: {len(contextos_ordenados)} contextos procesados.")
-    else:
-        print("No hay contextos pendientes de limpiar.")
-else:
-    print("El DataFrame de contextos está vacío.")
+            except Exception as e:
+                print(f"Error en parte {idx+1}, batch {i}: {e}")
+                continue
 
-# --- PARTE 2: Unión de DataFrames (Merge/Combine) ---
+    contextos_procesados = pd.DataFrame(all_results)
 
-# Aseguramos que el DF de procesados también tenga la columna índice
-if 'Contexto' not in contextos_procesados.columns:
-    contextos_procesados['Contexto'] = None
-
-# 1. Seteamos índices para la combinación
-df1 = contextos_procesados.set_index('Contexto')
-df2 = contextos_no_procesados.set_index('Contexto')
-
-# 2. Combinamos: rellena los huecos de df1 con la info nueva de df2
-contextos_procesados_finales = df1.combine_first(df2).reset_index()
-
-inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
-
-inputs_totales_por_rol = inputs_totales_por_rol.merge(
-    contextos_procesados_finales,
-    on="Contexto",
-    how="left"
-)
-
-inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol["Contexto_Limpio"]
-inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
-
-df_tickers = inputs_totales_por_rol.explode("Tickers Mapeados").copy()
-
-# quitar tickers nulos
-df_tickers = df_tickers[df_tickers["Tickers Mapeados"].notna()]
-
-max_eventos = df_tickers.groupby("Fila Noticia")["Evento"].max()
-
-def resolver_grupo(g):
-    #  regla clave: si hay algún True → quedarse solo con esos
-    if g["Mencionado"].any():
-        g = g[g["Mencionado"] == True]
-
-    return pd.Series({
-        "Eventos": max_eventos[g["Fila Noticia"].iloc[0]],
-        "Agente": (g["Rol"] == "agente").any(),
-        "Paciente": (g["Rol"] == "paciente").any(),
-        "Afectado": (g["Rol"] == "afectado").any(),
-        "Verbo": g["Verbo"].iloc[0],
-        "Contexto": g["Contexto"].iloc[0],
-        "Status": g["Status"].iloc[0],
-        "Mencionado": g["Mencionado"].any()
+    contextos_procesados = contextos_procesados.rename(columns={
+        "text": "Contexto",
+        "context": "Contexto_Limpio"
     })
 
-# Esto tarda un poco
-inputs_gramatical = (
-    df_tickers
-    .groupby(["Fila Noticia", "Evento", "Tickers Mapeados"])
-    .apply(resolver_grupo)
-    .reset_index()
-)
-
-# me cargo la columna Evento, porque ya tengo Eventos
-inputs_gramatical = inputs_gramatical.drop(columns=['Evento'])
-
-# 1. Donde Mencionado sea False, ponemos False en Agente, Paciente y Afectado
-# Usamos .loc[filas, columnas] para modificar solo donde se cumple la condición
-inputs_gramatical.loc[inputs_gramatical["Mencionado"] == False, ["Agente", "Paciente", "Afectado"]] = False
-
-# 2. Eliminamos la columna Mencionado
-inputs_gramatical = inputs_gramatical.drop(columns=["Mencionado"])
-
-
-def extraer_noticia(text):
-    if pd.isna(text) or not isinstance(text, str):
-        return None, None
-
-    # Extracción de Título
-    titulo_match = re.search(r"\[TITLE\]\s*(.*?)(?=\s*\[|$)", text, re.DOTALL)
-    titulo = titulo_match.group(1).strip() if titulo_match else None
-
-    # Extracción de Contenido
-    contenido_match = re.search(r"\[CONTENT\]\s*(.*)", text, re.DOTALL)
-
-    if contenido_match:
-        contenido = contenido_match.group(1).strip()
-    else:
-        # Si no hay contenido, repetimos el título
-        contenido = titulo
-
-    return titulo, contenido
-
-# Aplicamos y desempaquetamos
-resultados = noticias_input_filtrado['Full Text'].apply(extraer_noticia)
-titulos, contenidos = zip(*resultados)
-
-# Insertamos en las posiciones 3 y 4 (índices 2 y 3)
-noticias_input_filtrado.insert(2, "Titulo Noticia", titulos)
-noticias_input_filtrado.insert(3, "Contenido Noticia", contenidos)
-
-def get_time_bucket(dt):
-    h = dt.hour
-    m = dt.minute
-
-    total_minutes = h * 60 + m
-
-    if (total_minutes >= 0 and total_minutes <= 9*60+29) or (total_minutes >= 16*60+1):
-        return "extra oficial"
-    elif 9*60+30 <= total_minutes <= 11*60+59:
-        return "mañana"
-    elif 12*60 <= total_minutes <= 13*60+59:
-        return "medio dia"
-    elif 14*60 <= total_minutes <= 16*60:
-        return "tarde"
-    else:
-        return "extra oficial"  # por seguridad
-
-# Asegurar datetime
-noticias_input_filtrado["Date"] = pd.to_datetime(noticias_input_filtrado["Date"])
-
-day_col = noticias_input_filtrado["Date"].dt.day_name()
-time_bucket_col = noticias_input_filtrado["Date"].apply(get_time_bucket)
-
-# Eliminar si existen
-for col in ["Week Day", "Date Time"]:
-    if col in noticias_input_filtrado.columns:
-        noticias_input_filtrado.drop(columns=[col], inplace=True)
-
-# Insertar
-noticias_input_filtrado.insert(1, "Week Day", day_col)
-noticias_input_filtrado.insert(2, "Date Time", time_bucket_col)
-
-date = noticias_input_filtrado["Date"]
-day_map = noticias_input_filtrado["Week Day"]
-time_map = noticias_input_filtrado["Date Time"]
-title_map = noticias_input_filtrado["Titulo Noticia"]
-content_map = noticias_input_filtrado["Contenido Noticia"]
-
-inputs_gramatical.insert(
-    1,
-    "Date",
-    inputs_gramatical["Fila Noticia"].map(date)
-)
-
-
-inputs_gramatical.insert(
-    2,
-    "Week Day",
-    inputs_gramatical["Fila Noticia"].map(day_map)
-)
-
-inputs_gramatical.insert(
-    3,
-    "Date Time",
-    inputs_gramatical["Fila Noticia"].map(time_map)
-)
-
-inputs_gramatical.insert(
-    4,
-    "Titulo Noticia",
-    inputs_gramatical["Fila Noticia"].map(title_map)
-)
-
-inputs_gramatical.insert(
-    5,
-    "Contenido Noticia",
-    inputs_gramatical["Fila Noticia"].map(content_map)
-)
-
-
-
-inputs_gramatical = inputs_gramatical.groupby(["Fila Noticia", "Tickers Mapeados"]).agg({
-
-    "Date": "first",
-    "Week Day": "first",
-    "Date Time": "first",
-    "Titulo Noticia": "first",
-    "Contenido Noticia": "first",
-    "Eventos": "max",
-
-    # booleanos → OR lógico
-    "Agente": "max",
-    "Paciente": "max",
-    "Afectado": "max",
-
-    # Mencionado → SUMA (como definiste)
-    #"Mencionado": "sum",
-
-    # IMPORTANTE: mantener todos los valores (NO colapsar)
-    "Verbo": list,
-    "Contexto": list,
-    "Status": list,
-
-}).reset_index()
-
-# ordeno por fecha
-inputs_gramatical['Date'] = pd.to_datetime(inputs_gramatical['Date'])
-inputs_gramatical = inputs_gramatical.sort_values(['Date', 'Fila Noticia']).reset_index(drop=True)
-
-
-boolean_cols = ["Agente", "Paciente", "Afectado"]
-boolean_data = inputs_gramatical[boolean_cols].astype(float)
-
-
-categorical_cols = ["Week Day", "Date Time"]
-
-# Configuramos el encoder para que devuelva un DataFrame de Pandas
-encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-encoder.set_output(transform="pandas")
-
-# Ahora 'encoded_data' será un DataFrame con los nombres automáticos
-encoded_data = encoder.fit_transform(inputs_gramatical[categorical_cols])
-
-
-status_map = {
-    "speculative": 0,
-    "in progress": 1,
-    "confirmed neutral": 2,
-    "confirmed positive": 3,
-    "confirmed negative": 4
-}
-
-
-def multi_hot_status(values, n_classes=5):
-    vec = np.zeros(n_classes)
-    for s in values:
-        vec[status_map[s]] = 1
-    return vec
-
-status_array = np.stack(inputs_gramatical["Status"].apply(multi_hot_status))
-
-# Crear el DataFrame resultante
-status_cols = [f"Status_{k}" for k in status_map.keys()]
-status_data = pd.DataFrame(status_array, columns=status_cols, index=inputs_gramatical.index)
-
-numeric_cols = ["Eventos"]
-
-numeric_data = inputs_gramatical[numeric_cols].astype(float)
-
-
-
-# 1. Detectar el dispositivo (GPU si está disponible)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Usando dispositivo: {device}")
-
-tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
-# 2. Mover el modelo a la GPU
-model = AutoModel.from_pretrained("ProsusAI/finbert").to(device)
-model.eval() # Poner en modo evaluación
-
-
-def get_embeddings(text_list, batch_size=64): # En GPU puedes subir el batch a 32 o 64
-    embeddings_list = []
-
-    # Usamos tqdm para monitorear el tiempo real
-    # for i in tqdm(range(0, len(text_list), batch_size)):
-    for i in range(0, len(text_list), batch_size):
-        batch = text_list[i:i+batch_size]
-
-        inputs = tokenizer(
-            batch,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="pt"
-        ).to(device) # 3. Mover los inputs a la GPU
-
-        # 4. Usar inference_mode es más rápido que no_grad
-        with torch.inference_mode():
-            outputs = model(**inputs)
-
-        # 5. Extraer el CLS y mover de vuelta a CPU para liberar memoria GPU
-        cls_embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
-        embeddings_list.append(cls_embeddings)
-
-        # Opcional: Liberar caché si notas lentitud
-        # torch.cuda.empty_cache()
-
-    return np.vstack(embeddings_list)
-
-title_embeddings_matrix = get_embeddings(inputs_gramatical["Titulo Noticia"].tolist())
-
-title_embedding_data = pd.DataFrame(title_embeddings_matrix)
-title_embedding_data.columns = [f'Titulo_{i}' for i in range(title_embedding_data.shape[1])]
-
-content_embeddings_matrix = get_embeddings(inputs_gramatical["Contenido Noticia"].tolist())
-
-content_embedding_data = pd.DataFrame(content_embeddings_matrix)
-content_embedding_data.columns = [f'Contenido_{i}' for i in range(content_embedding_data.shape[1])]
-
-
-def get_embeddings_ndarray(verbo_column, batch_size=64):
-    model.to(device)
-    model.eval()
-
-    # 1. Preparar datos: aplanamos todos los verbos y guardamos cuántos hay por fila
-    all_verbs = []
-    counts = []
-
-    for val in verbo_column:
-        if isinstance(val, (np.ndarray, list)):
-            lista = [str(word).strip() for word in val if str(word).strip()]
-        elif isinstance(val, str):
-            lista = [w.strip() for w in val.replace('[','').replace(']','').split(',') if w.strip()]
+    inputs_totales_por_rol = inputs_totales_por_rol.merge(
+        contextos_procesados,
+        on="Contexto",
+        how="left"
+    )
+
+    contexts_missing = (
+        inputs_totales_por_rol[
+            inputs_totales_por_rol["Contexto_Limpio"].isna()
+        ]["Contexto"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
+
+    contexts_missing = list(contexts_missing)
+
+    missing_results = []
+    client = Groq(api_key="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")
+    # batches pequeños = más fiable
+    def chunk_list(lst, size=50):
+        for i in range(0, len(lst), size):
+            yield lst[i:i + size]
+
+    for chunk in chunk_list(contexts_missing, 20):
+        try:
+            results = extract_main_context_batch(chunk, client)
+
+            # IMPORTANTE: mapear por texto
+            mapping = {r["text"]: r["context"] for r in results}
+
+            for v in chunk:
+                missing_results.append({
+                    "Contexto": v,
+                    "Contexto_Limpio": mapping.get(v, None)
+                })
+
+        except Exception as e:
+            print(f"Error en batch: {e}")
+
+    contextos_no_procesados = pd.DataFrame(missing_results)
+
+    # Aseguramos que existan las columnas mínimas para que el flujo no se rompa
+    for col in ['Contexto', 'Contexto_Limpio']:
+        if col not in contextos_no_procesados.columns:
+            contextos_no_procesados[col] = None
+
+    if not contextos_no_procesados.empty:
+        # 1. Identificar filas con Contexto_Limpio pendiente
+        mask = contextos_no_procesados['Contexto_Limpio'].isna()
+        contexto_sucio = contextos_no_procesados.loc[mask, 'Contexto'].tolist()
+
+        if contexto_sucio:
+            # 2. Obtener resultados (Llamada al batch de contexto)
+            resultados = extract_main_context_batch(contexto_sucio, client)
+
+            # 3. Extraer solo los contextos limpios manteniendo el orden
+            contextos_ordenados = [item['context'] for item in resultados]
+
+            # 4. Asignar directamente
+            contextos_no_procesados.loc[mask, 'Contexto_Limpio'] = contextos_ordenados
+            print(f"Actualización completada: {len(contextos_ordenados)} contextos procesados.")
         else:
-            lista = []
+            print("No hay contextos pendientes de limpiar.")
+    else:
+        print("El DataFrame de contextos está vacío.")
 
-        all_verbs.extend(lista if lista else [""]) # Evitamos listas vacías
-        counts.append(len(lista) if lista else 1)
+    # --- PARTE 2: Unión de DataFrames (Merge/Combine) ---
 
-    # 2. Procesar todos los verbos en batches (usando tu lógica de GPU)
-    embeddings_list = []
-    # for i in tqdm(range(0, len(all_verbs), batch_size), desc=f"Procesando verbos en {device}"):
-    for i in range(0, len(all_verbs), batch_size):
+    # Aseguramos que el DF de procesados también tenga la columna índice
+    if 'Contexto' not in contextos_procesados.columns:
+        contextos_procesados['Contexto'] = None
 
-        batch = all_verbs[i : i + batch_size]
-        inputs = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+    # 1. Seteamos índices para la combinación
+    df1 = contextos_procesados.set_index('Contexto')
+    df2 = contextos_no_procesados.set_index('Contexto')
 
-        with torch.inference_mode():
-            outputs = model(**inputs)
-            # Extraemos el token CLS
-            cls_emb = outputs.last_hidden_state[:, 0, :].cpu().numpy()
-            embeddings_list.append(cls_emb)
+    # 2. Combinamos: rellena los huecos de df1 con la info nueva de df2
+    contextos_procesados_finales = df1.combine_first(df2).reset_index()
 
-    all_embeddings = np.vstack(embeddings_list)
+    inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
 
-    # 3. Re-agrupar y calcular la media por cada fila original
-    final_mean_embeddings = []
-    current_idx = 0
-    for count in counts:
-        # Tomamos los embeddings que pertenecen a esta fila y sacamos la media
-        row_embs = all_embeddings[current_idx : current_idx + count]
-        final_mean_embeddings.append(np.mean(row_embs, axis=0))
-        current_idx += count
+    inputs_totales_por_rol = inputs_totales_por_rol.merge(
+        contextos_procesados_finales,
+        on="Contexto",
+        how="left"
+    )
 
-    return np.vstack(final_mean_embeddings)
+    inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol["Contexto_Limpio"]
+    inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
 
-verbo_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Verbo'])
+    df_tickers = inputs_totales_por_rol.explode("Tickers Mapeados").copy()
 
-# Crear DataFrame expandido
-verbo_embeddings = pd.DataFrame(verbo_embeddings_matrix)
-verbo_embeddings.columns = [f'Verbo_{i}' for i in range(verbo_embeddings.shape[1])]
+    # quitar tickers nulos
+    df_tickers = df_tickers[df_tickers["Tickers Mapeados"].notna()]
 
-contexto_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Contexto'])
+    max_eventos = df_tickers.groupby("Fila Noticia")["Evento"].max()
 
-# Crear DataFrame expandido
-contexto_embeddings = pd.DataFrame(contexto_embeddings_matrix)
-contexto_embeddings.columns = [f'Contexto_{i}' for i in range(contexto_embeddings.shape[1])]
+    def resolver_grupo(g):
+        #  regla clave: si hay algún True → quedarse solo con esos
+        if g["Mencionado"].any():
+            g = g[g["Mencionado"] == True]
+
+        return pd.Series({
+            "Eventos": max_eventos[g["Fila Noticia"].iloc[0]],
+            "Agente": (g["Rol"] == "agente").any(),
+            "Paciente": (g["Rol"] == "paciente").any(),
+            "Afectado": (g["Rol"] == "afectado").any(),
+            "Verbo": g["Verbo"].iloc[0],
+            "Contexto": g["Contexto"].iloc[0],
+            "Status": g["Status"].iloc[0],
+            "Mencionado": g["Mencionado"].any()
+        })
+
+    # Esto tarda un poco
+    inputs_gramatical = (
+        df_tickers
+        .groupby(["Fila Noticia", "Evento", "Tickers Mapeados"])
+        .apply(resolver_grupo)
+        .reset_index()
+    )
+
+    # me cargo la columna Evento, porque ya tengo Eventos
+    inputs_gramatical = inputs_gramatical.drop(columns=['Evento'])
+
+    # 1. Donde Mencionado sea False, ponemos False en Agente, Paciente y Afectado
+    # Usamos .loc[filas, columnas] para modificar solo donde se cumple la condición
+    inputs_gramatical.loc[inputs_gramatical["Mencionado"] == False, ["Agente", "Paciente", "Afectado"]] = False
+
+    # 2. Eliminamos la columna Mencionado
+    inputs_gramatical = inputs_gramatical.drop(columns=["Mencionado"])
 
 
-# Lista de todos tus DataFrames
-dataframes = [
-    title_embedding_data,# Los embeddings de titulo
-    content_embedding_data,# Embeddings de contenido
-    verbo_embeddings,    # Embeddings de verbo
-    contexto_embeddings, # Embeddings de contexto
-    boolean_data,        # Agente, Paciente, Afectado
-    numeric_data,        # Eventos y Mencionado ** quite mencionado
-    encoded_data,        # Week Day, Sector, Datetime (One-Hot)
-    status_data,         # Multi-hot Status
-]
+    def extraer_noticia(text):
+        if pd.isna(text) or not isinstance(text, str):
+            return None, None
 
-# Unirlos todos lateralmente
-df_inputs = pd.concat(dataframes, axis=1)
+        # Extracción de Título
+        titulo_match = re.search(r"\[TITLE\]\s*(.*?)(?=\s*\[|$)", text, re.DOTALL)
+        titulo = titulo_match.group(1).strip() if titulo_match else None
+
+        # Extracción de Contenido
+        contenido_match = re.search(r"\[CONTENT\]\s*(.*)", text, re.DOTALL)
+
+        if contenido_match:
+            contenido = contenido_match.group(1).strip()
+        else:
+            # Si no hay contenido, repetimos el título
+            contenido = titulo
+
+        return titulo, contenido
+
+    # Aplicamos y desempaquetamos
+    resultados = noticias_input_filtrado['Full Text'].apply(extraer_noticia)
+    titulos, contenidos = zip(*resultados)
+
+    # Insertamos en las posiciones 3 y 4 (índices 2 y 3)
+    noticias_input_filtrado.insert(2, "Titulo Noticia", titulos)
+    noticias_input_filtrado.insert(3, "Contenido Noticia", contenidos)
+
+    def get_time_bucket(dt):
+        h = dt.hour
+        m = dt.minute
+
+        total_minutes = h * 60 + m
+
+        if (total_minutes >= 0 and total_minutes <= 9*60+29) or (total_minutes >= 16*60+1):
+            return "extra oficial"
+        elif 9*60+30 <= total_minutes <= 11*60+59:
+            return "mañana"
+        elif 12*60 <= total_minutes <= 13*60+59:
+            return "medio dia"
+        elif 14*60 <= total_minutes <= 16*60:
+            return "tarde"
+        else:
+            return "extra oficial"  # por seguridad
+
+    # Asegurar datetime
+    noticias_input_filtrado["Date"] = pd.to_datetime(noticias_input_filtrado["Date"])
+
+    day_col = noticias_input_filtrado["Date"].dt.day_name()
+    time_bucket_col = noticias_input_filtrado["Date"].apply(get_time_bucket)
+
+    # Eliminar si existen
+    for col in ["Week Day", "Date Time"]:
+        if col in noticias_input_filtrado.columns:
+            noticias_input_filtrado.drop(columns=[col], inplace=True)
+
+    # Insertar
+    noticias_input_filtrado.insert(1, "Week Day", day_col)
+    noticias_input_filtrado.insert(2, "Date Time", time_bucket_col)
+
+    date = noticias_input_filtrado["Date"]
+    day_map = noticias_input_filtrado["Week Day"]
+    time_map = noticias_input_filtrado["Date Time"]
+    title_map = noticias_input_filtrado["Titulo Noticia"]
+    content_map = noticias_input_filtrado["Contenido Noticia"]
+
+    inputs_gramatical.insert(
+        1,
+        "Date",
+        inputs_gramatical["Fila Noticia"].map(date)
+    )
+
+
+    inputs_gramatical.insert(
+        2,
+        "Week Day",
+        inputs_gramatical["Fila Noticia"].map(day_map)
+    )
+
+    inputs_gramatical.insert(
+        3,
+        "Date Time",
+        inputs_gramatical["Fila Noticia"].map(time_map)
+    )
+
+    inputs_gramatical.insert(
+        4,
+        "Titulo Noticia",
+        inputs_gramatical["Fila Noticia"].map(title_map)
+    )
+
+    inputs_gramatical.insert(
+        5,
+        "Contenido Noticia",
+        inputs_gramatical["Fila Noticia"].map(content_map)
+    )
+
+
+
+    inputs_gramatical = inputs_gramatical.groupby(["Fila Noticia", "Tickers Mapeados"]).agg({
+
+        "Date": "first",
+        "Week Day": "first",
+        "Date Time": "first",
+        "Titulo Noticia": "first",
+        "Contenido Noticia": "first",
+        "Eventos": "max",
+
+        # booleanos → OR lógico
+        "Agente": "max",
+        "Paciente": "max",
+        "Afectado": "max",
+
+        # Mencionado → SUMA (como definiste)
+        #"Mencionado": "sum",
+
+        # IMPORTANTE: mantener todos los valores (NO colapsar)
+        "Verbo": list,
+        "Contexto": list,
+        "Status": list,
+
+    }).reset_index()
+
+    # ordeno por fecha
+    inputs_gramatical['Date'] = pd.to_datetime(inputs_gramatical['Date'])
+    inputs_gramatical = inputs_gramatical.sort_values(['Date', 'Fila Noticia']).reset_index(drop=True)
+
+
+    boolean_cols = ["Agente", "Paciente", "Afectado"]
+    boolean_data = inputs_gramatical[boolean_cols].astype(float)
+
+
+    categorical_cols = ["Week Day", "Date Time"]
+
+    # Configuramos el encoder para que devuelva un DataFrame de Pandas
+    encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
+    encoder.set_output(transform="pandas")
+
+    # Ahora 'encoded_data' será un DataFrame con los nombres automáticos
+    encoded_data = encoder.fit_transform(inputs_gramatical[categorical_cols])
+
+
+    status_map = {
+        "speculative": 0,
+        "in progress": 1,
+        "confirmed neutral": 2,
+        "confirmed positive": 3,
+        "confirmed negative": 4
+    }
+
+
+    def multi_hot_status(values, n_classes=5):
+        vec = np.zeros(n_classes)
+        for s in values:
+            vec[status_map[s]] = 1
+        return vec
+
+    status_array = np.stack(inputs_gramatical["Status"].apply(multi_hot_status))
+
+    # Crear el DataFrame resultante
+    status_cols = [f"Status_{k}" for k in status_map.keys()]
+    status_data = pd.DataFrame(status_array, columns=status_cols, index=inputs_gramatical.index)
+
+    numeric_cols = ["Eventos"]
+
+    numeric_data = inputs_gramatical[numeric_cols].astype(float)
+
+
+
+    # 1. Detectar el dispositivo (GPU si está disponible)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Usando dispositivo: {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
+    # 2. Mover el modelo a la GPU
+    model = AutoModel.from_pretrained("ProsusAI/finbert").to(device)
+    model.eval() # Poner en modo evaluación
+
+
+    def get_embeddings(text_list, batch_size=64): # En GPU puedes subir el batch a 32 o 64
+        embeddings_list = []
+
+        # Usamos tqdm para monitorear el tiempo real
+        # for i in tqdm(range(0, len(text_list), batch_size)):
+        for i in range(0, len(text_list), batch_size):
+            batch = text_list[i:i+batch_size]
+
+            inputs = tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt"
+            ).to(device) # 3. Mover los inputs a la GPU
+
+            # 4. Usar inference_mode es más rápido que no_grad
+            with torch.inference_mode():
+                outputs = model(**inputs)
+
+            # 5. Extraer el CLS y mover de vuelta a CPU para liberar memoria GPU
+            cls_embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
+            embeddings_list.append(cls_embeddings)
+
+            # Opcional: Liberar caché si notas lentitud
+            # torch.cuda.empty_cache()
+
+        return np.vstack(embeddings_list)
+
+    title_embeddings_matrix = get_embeddings(inputs_gramatical["Titulo Noticia"].tolist())
+
+    title_embedding_data = pd.DataFrame(title_embeddings_matrix)
+    title_embedding_data.columns = [f'Titulo_{i}' for i in range(title_embedding_data.shape[1])]
+
+    content_embeddings_matrix = get_embeddings(inputs_gramatical["Contenido Noticia"].tolist())
+
+    content_embedding_data = pd.DataFrame(content_embeddings_matrix)
+    content_embedding_data.columns = [f'Contenido_{i}' for i in range(content_embedding_data.shape[1])]
+
+
+    def get_embeddings_ndarray(verbo_column, batch_size=64):
+        model.to(device)
+        model.eval()
+
+        # 1. Preparar datos: aplanamos todos los verbos y guardamos cuántos hay por fila
+        all_verbs = []
+        counts = []
+
+        for val in verbo_column:
+            if isinstance(val, (np.ndarray, list)):
+                lista = [str(word).strip() for word in val if str(word).strip()]
+            elif isinstance(val, str):
+                lista = [w.strip() for w in val.replace('[','').replace(']','').split(',') if w.strip()]
+            else:
+                lista = []
+
+            all_verbs.extend(lista if lista else [""]) # Evitamos listas vacías
+            counts.append(len(lista) if lista else 1)
+
+        # 2. Procesar todos los verbos en batches (usando tu lógica de GPU)
+        embeddings_list = []
+        # for i in tqdm(range(0, len(all_verbs), batch_size), desc=f"Procesando verbos en {device}"):
+        for i in range(0, len(all_verbs), batch_size):
+
+            batch = all_verbs[i : i + batch_size]
+            inputs = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+
+            with torch.inference_mode():
+                outputs = model(**inputs)
+                # Extraemos el token CLS
+                cls_emb = outputs.last_hidden_state[:, 0, :].cpu().numpy()
+                embeddings_list.append(cls_emb)
+
+        all_embeddings = np.vstack(embeddings_list)
+
+        # 3. Re-agrupar y calcular la media por cada fila original
+        final_mean_embeddings = []
+        current_idx = 0
+        for count in counts:
+            # Tomamos los embeddings que pertenecen a esta fila y sacamos la media
+            row_embs = all_embeddings[current_idx : current_idx + count]
+            final_mean_embeddings.append(np.mean(row_embs, axis=0))
+            current_idx += count
+
+        return np.vstack(final_mean_embeddings)
+
+    verbo_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Verbo'])
+
+    # Crear DataFrame expandido
+    verbo_embeddings = pd.DataFrame(verbo_embeddings_matrix)
+    verbo_embeddings.columns = [f'Verbo_{i}' for i in range(verbo_embeddings.shape[1])]
+
+    contexto_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Contexto'])
+
+    # Crear DataFrame expandido
+    contexto_embeddings = pd.DataFrame(contexto_embeddings_matrix)
+    contexto_embeddings.columns = [f'Contexto_{i}' for i in range(contexto_embeddings.shape[1])]
+
+
+    # Lista de todos tus DataFrames
+    dataframes = [
+        title_embedding_data,# Los embeddings de titulo
+        content_embedding_data,# Embeddings de contenido
+        verbo_embeddings,    # Embeddings de verbo
+        contexto_embeddings, # Embeddings de contexto
+        boolean_data,        # Agente, Paciente, Afectado
+        numeric_data,        # Eventos y Mencionado ** quite mencionado
+        encoded_data,        # Week Day, Sector, Datetime (One-Hot)
+        status_data,         # Multi-hot Status
+    ]
+
+    # Unirlos todos lateralmente
+    df_inputs = pd.concat(dataframes, axis=1)
+
+else:
+    # SI VIENE VACÍO DESDE EL ORIGEN:
+    print("⚠️ 'inputs_totales_por_rol' está vacío desde el inicio. Generando df_inputs vacío.")
+    df_inputs = pd.DataFrame() # <--- Esto activa tu control de seguridad de abajo
+
 
 # CONTROL DE SEGURIDAD ABSOLUTO: Si no hay datos, saltamos la red neuronal
 if df_inputs.empty:
