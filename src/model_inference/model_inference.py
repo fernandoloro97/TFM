@@ -152,11 +152,11 @@ def finalizar_dataframe(noticias):
     return df
 
 
-hoy = datetime(2026, 5, 15)
+hoy = datetime(2026, 5, 20)
 
 # 2. Calculamos las fechas relativas
-start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") # 2026-05-05
-end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   # 2026-05-07
+start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") 
+end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   
 
 # 3. Llamada a tu función con las variables programadas
 df_nyt = descargar_nyt_periodo(start, end, query="news")
