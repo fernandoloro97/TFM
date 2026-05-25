@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from datetime import time as dt_time
 from collections import defaultdict, Counter
 
@@ -4688,7 +4688,7 @@ df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True
 df_balance = sim.construir_balance(
     df_todo,
     precios_cierre_sesion,
-    fecha_inicio=datetime.date(2026, 5, 15)
+    fecha_inicio = date(2026, 5, 15) # <-- Usa solo date()
 )
 # Filtrar solo pendientes
 df_pendientes = df_todo[
