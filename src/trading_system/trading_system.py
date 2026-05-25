@@ -1,6 +1,17 @@
+import pandas as pd
+import numpy as np
+
+from datetime import datetime
+from decimal import Decimal
+import json
+import boto3
+
+
+
 # Configuración de AWS (Boto3 usará las variables de entorno de GitHub Actions)
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # Cambia a tu región
 s3 = boto3.client('s3')
+dynamodb_client = boto3.client('dynamodb', region_name='us-east-1')
 
 def get_table_df(table_name):
     table = dynamodb.Table(table_name)
@@ -19,6 +30,8 @@ precios_cierre_sesion = get_table_df('sesion_close_prices')
 volumenes_sesion = get_table_df('sesion_volumes')
 pendientes_ayer = get_table_df('pending_trade')
 historico_balance = get_table_df('daily_balance')
+seynales_modelo = get_table_df('model_signals')
+
 
 def obtener_metricas(
     fila,
@@ -1273,6 +1286,32 @@ else:
     # 3. Extraemos el último capital_cash registrado en la base de datos
     capital_hoy = float(historico_balance['capital_cash'].iloc[-1])
     print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
+    
+    
+# 2. Aplicar formateo estricto de tipos de datos
+if not seynales_modelo.empty:
+    # Columna de Texto (String)
+    seynales_modelo['Tickers Mapeados'] = seynales_modelo['Tickers Mapeados'].astype(str)
+    
+    # Columnas de Números Enteros (Integers)
+    # pd.to_numeric convierte los tipos 'Decimal' de DynamoDB a números de Python
+    seynales_modelo['ID'] = pd.to_numeric(seynales_modelo['ID'], errors='coerce').astype(int)
+    seynales_modelo['Fila Noticia'] = pd.to_numeric(seynales_modelo['Fila Noticia'], errors='coerce').astype(int)
+    seynales_modelo['Pred_label'] = pd.to_numeric(seynales_modelo['Pred_label'], errors='coerce').astype(int)
+    seynales_modelo['True_label'] = pd.to_numeric(seynales_modelo['True_label'], errors='coerce').astype(int)
+    
+    # Columna de Números Decimales (Float)
+    seynales_modelo['Prob_up'] = pd.to_numeric(seynales_modelo['Prob_up'], errors='coerce').astype(float)
+    
+    # Columna de Fecha y Hora (Datetime)
+    seynales_modelo['Date'] = pd.to_datetime(seynales_modelo['Date'])
+    
+    # Limpieza de índices: Descartar desorden de filas y reiniciar desde 0
+    seynales_modelo.reset_index(drop=True, inplace=True)
+else:
+    # Estructura vacía con tipos definidos por si no hay registros
+    columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label', 'True_label']
+    seynales_modelo = pd.DataFrame(columns=columnas)
 
 # ==============================================================================
 # INSTANCIA Y EJECUCIÓN DEL SIMULADOR

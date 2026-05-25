@@ -3438,15 +3438,22 @@ else:
 if not seynales_modelo.empty:
     print(f"Preparando {len(seynales_modelo)} nuevos registros para subir...")
     
+    # 1. Creamos la columna ID desde el índice
     df_upload = seynales_modelo.reset_index().rename(columns={'index': 'ID'})
-    df_upload['ID'] = df_upload['ID'].astype(str)
+    
+    # CORRECCIÓN CLAVE: ID como Entero puro (Compatible con ID (N) en DynamoDB)
+    df_upload['ID'] = df_upload['ID'].astype(int)
+    
+    # Forzar que la fecha sea siempre String para AWS
     df_upload['Date'] = df_upload['Date'].astype(str)
     
     # Formateo de tipos para AWS
     for col in df_upload.select_dtypes(include=[float, 'float64']).columns:
         df_upload[col] = df_upload[col].apply(lambda x: Decimal(str(x)) if pd.notnull(x) else None)
+        
     for col in df_upload.select_dtypes(include=[int, 'int64']).columns:
-        df_upload[col] = df_upload[col].astype(int)
+        # CORRECCIÓN CLAVE: Convertir a int nativo de Python uno a uno (Evita int64 de numpy)
+        df_upload[col] = df_upload[col].apply(lambda x: int(x) if pd.notnull(x) else None)
         
     registros = df_upload.to_dict(orient='records')
     with tabla_signal.batch_writer() as batch:
@@ -3457,4 +3464,5 @@ if not seynales_modelo.empty:
     print("Nuevos datos subidos con éxito a 'model_signals'.")
 else:
     print("El DataFrame de señales está vacío. La tabla quedará vacía de forma intencional.")
+
 

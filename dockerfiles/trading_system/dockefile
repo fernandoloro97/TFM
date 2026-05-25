@@ -1,0 +1,13 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Copiamos el archivo de requerimientos
+COPY src/trading_system/requirements.txt .
+
+# Instalamos usando el --target que te funcionó en el otro proyecto
+RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+
+# Copiamos tu script
+COPY src/trading_system/trading_system.py ${LAMBDA_TASK_ROOT}
+
+# El handler debe ser NOMBRE_ARCHIVO.handler
+CMD [ "trading_system.handler" ]
