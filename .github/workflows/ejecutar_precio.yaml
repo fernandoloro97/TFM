@@ -84,65 +84,6 @@
 # Esto es para las imagenes de datos
 # name: Build and Push Multiple Images to ECR
 
-# on:
-#   push:
-#     branches:
-#       - main
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-
-#     strategy:
-#       matrix:
-#         include:
-#           - repository: update_changes_sp500
-#             dockerfile: dockerfiles/changes_sp500/dockerfile
-
-#           - repository: update_composition_sp500
-#             dockerfile: dockerfiles/composition_sp500/dockerfile
-
-#           - repository: update_morningstar
-#             dockerfile: dockerfiles/morningstar/dockerfile
-
-#           - repository: update_wikipedia_keys
-#             dockerfile: dockerfiles/wikipedia_keys/dockerfile
-
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v4
-#         with:
-#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           aws-region: us-east-1
-
-#       - name: Login to Amazon ECR
-#         id: login-ecr
-#         uses: aws-actions/amazon-ecr-login@v2
-
-#       - name: Build Docker image
-#         env:
-#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           ECR_REPOSITORY: ${{ matrix.repository }}
-#         run: |
-#           docker build \
-#             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-#             -f ${{ matrix.dockerfile }} .
-
-#       - name: Push Docker image
-#         env:
-#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           ECR_REPOSITORY: ${{ matrix.repository }}
-#         run: |
-#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-
-# Esto es para SISTEMA DE TRADING
-# name: Build and Push Multiple Images to ECR
-
 on:
   push:
     branches:
@@ -155,9 +96,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - repository: update_trading_system
-            dockerfile: dockerfiles/trading_system/dockerfile
+          - repository: update_changes_sp500
+            dockerfile: dockerfiles/changes_sp500/dockerfile
 
+          - repository: update_composition_sp500
+            dockerfile: dockerfiles/composition_sp500/dockerfile
+
+          - repository: update_morningstar
+            dockerfile: dockerfiles/morningstar/dockerfile
+
+          - repository: update_wikipedia_keys
+            dockerfile: dockerfiles/wikipedia_keys/dockerfile
 
     steps:
       - name: Checkout code
@@ -180,7 +129,7 @@ jobs:
           ECR_REPOSITORY: ${{ matrix.repository }}
         run: |
           docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_5 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_2 \
             -f ${{ matrix.dockerfile }} .
 
       - name: Push Docker image
@@ -188,4 +137,55 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ matrix.repository }}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_5
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_2
+
+
+# Esto es para SISTEMA DE TRADING
+# name: Build and Push Multiple Images to ECR
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     strategy:
+#       matrix:
+#         include:
+#           - repository: update_trading_system
+#             dockerfile: dockerfiles/trading_system/dockerfile
+
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1
+
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Build Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker build \
+#             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_5 \
+#             -f ${{ matrix.dockerfile }} .
+
+#       - name: Push Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_5

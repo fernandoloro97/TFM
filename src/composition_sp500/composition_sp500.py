@@ -83,8 +83,7 @@ def handler(event, context):
     # =========================================================================
     # CONFIGURACIÓN DE LA FECHA OBJETIVO
     # =========================================================================
-    # Si quieres dejarlo fijo para el 15/05/2026, usa esta línea:
-    target_date_str = "2026-05-20"
+    target_date_str = "2026-05-21"
     
     # NOTA OPCIONAL: Si en el futuro prefieres que sea dinámico vía evento, 
     # puedes descomentar las siguientes líneas:
