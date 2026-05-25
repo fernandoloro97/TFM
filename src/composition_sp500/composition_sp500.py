@@ -83,7 +83,7 @@ def handler(event, context):
     # =========================================================================
     # CONFIGURACIÓN DE LA FECHA OBJETIVO
     # =========================================================================
-    target_date_str = "2026-05-21"
+    target_date_str = "2026-05-22"
     
     # NOTA OPCIONAL: Si en el futuro prefieres que sea dinámico vía evento, 
     # puedes descomentar las siguientes líneas:
