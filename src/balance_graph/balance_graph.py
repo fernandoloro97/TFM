@@ -138,10 +138,16 @@ col_izq, col_der = st.columns([2, 1])
 
 with col_izq:
     st.subheader(f"📈 Evolución del Patrimonio Neto (Hasta {fecha_seleccionada})")
+    
+    # Crear el gráfico con Plotly Express
     fig = px.line(df_filtrado, x='fecha', y='equity_total', markers=True,
                   labels={'fecha': 'Fecha', 'equity_total': 'Patrimonio Total ($)'},
                   template="plotly_dark")
-    fig.update_traces(line_color='#00FFCC', linewidth=3)
+    
+    # CORRECCIÓN AQUÍ: Usamos un diccionario para pasar los estilos de línea de forma estricta
+    fig.update_traces(line=dict(color='#00FFCC', width=3))
+    
+    # Renderizar en Streamlit
     st.plotly_chart(fig, use_container_width=True)
 
 with col_der:
