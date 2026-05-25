@@ -1,47 +1,47 @@
 # # EJECUTA INFERENCIA
-name: Model Inference Pipeline
+# name: Model Inference Pipeline
 
 
-on:
-  push:
-    branches: [ main ]  # Se ejecuta cada vez que subes cambios a main
-  workflow_dispatch:    # Permite ejecutarlo manualmente desde la pestaña Actions
+# on:
+#   push:
+#     branches: [ main ]  # Se ejecuta cada vez que subes cambios a main
+#   workflow_dispatch:    # Permite ejecutarlo manualmente desde la pestaña Actions
 
-jobs:
-  build-and-run:
-    runs-on: ubuntu-latest
+# jobs:
+#   build-and-run:
+#     runs-on: ubuntu-latest
     
-    # Definimos variables de entorno para las APIs
-    env:
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+#     # Definimos variables de entorno para las APIs
+#     env:
+#       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10' # Versión estable para torch y spacy
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.10' # Versión estable para torch y spacy
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas boto3 torch scikit-learn transformers \
-                      ctransformers sentencepiece rapidfuzz groq \
-                      sentence-transformers spacy[transformers]
-          # Descarga del modelo de Spacy (esto puede tardar un par de minutos)
-          python -m spacy download en_core_web_trf
+#       - name: Install dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install pandas boto3 torch scikit-learn transformers \
+#                       ctransformers sentencepiece rapidfuzz groq \
+#                       sentence-transformers spacy[transformers]
+#           # Descarga del modelo de Spacy (esto puede tardar un par de minutos)
+#           python -m spacy download en_core_web_trf
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1 # Asegúrate de que coincida con tu región de Dynamo/S3
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v2
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1 # Asegúrate de que coincida con tu región de Dynamo/S3
 
-      - name: Run Inference Script
-        run: python src/model_inference/model_inference.py
+#       - name: Run Inference Script
+#         run: python src/model_inference/model_inference.py
 
 
 
@@ -142,54 +142,54 @@ jobs:
 
 
 # Esto es para SISTEMA DE TRADING
-# name: Build and Push Multiple Images to ECR
+name: Build and Push Multiple Images to ECR
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches:
+      - main
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-#     strategy:
-#       matrix:
-#         include:
-#           - repository: update_trading_system
-#             dockerfile: dockerfiles/trading_system/dockerfile
+    strategy:
+      matrix:
+        include:
+          - repository: update_trading_system
+            dockerfile: dockerfiles/trading_system/dockerfile
 
 
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v4
-#         with:
-#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           aws-region: us-east-1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-#       - name: Login to Amazon ECR
-#         id: login-ecr
-#         uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-#       - name: Build Docker image
-#         env:
-#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           ECR_REPOSITORY: ${{ matrix.repository }}
-#         run: |
-#           docker build \
-#             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_6 \
-#             -f ${{ matrix.dockerfile }} .
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ matrix.repository }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_7 \
+            -f ${{ matrix.dockerfile }} .
 
-#       - name: Push Docker image
-#         env:
-#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-#           ECR_REPOSITORY: ${{ matrix.repository }}
-#         run: |
-#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_6
+      - name: Push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ matrix.repository }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_7
 
 
 # DESPLIEGO EL APPRUNNER

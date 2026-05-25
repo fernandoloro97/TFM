@@ -1517,6 +1517,9 @@ condicion_2 = (
 noticias_input_filtrado = noticias_input[condicion_1 | condicion_2].copy()
 noticias_input_filtrado = noticias_input_filtrado.reset_index(drop=True)
 
+# Imprime True si está vacío, False si tiene filas
+print(f"¿Está vacío?: {noticias_input_filtrado.empty}") 
+
 # Cambiamos el nombre de la variable a 'llm'
 llm = AutoModelForCausalLM.from_pretrained(
     "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
@@ -1842,7 +1845,7 @@ if not noticias_con_empresas.empty:
     # noticias_con_empresas = noticias_con_empresas.reset_index(drop=True)
     resultado_empresa = procesar_noticias_completo(noticias_con_empresas)
 else:
-    print("No se encontraron noticias con sectores. Devolviendo DataFrame vacío.")
+    print("No se encontraron noticias con empresas. Devolviendo DataFrame vacío.")
     # Creamos un DataFrame vacío con las columnas que esperas de eventos_a_df_fast
     resultado_empresa = pd.DataFrame(columns=[
         "Fila Noticia", "Evento", "Keywords Validas", "Agente", "Paciente",
