@@ -83,7 +83,11 @@ def handler(event, context):
     # =========================================================================
     # CONFIGURACIÓN DE LA FECHA OBJETIVO
     # =========================================================================
-    target_date_str = "2026-05-22"
+    # target_date_str = "2026-05-22"
+    # Captura el año, mes y día actual del momento exacto de la ejecución (Ej: "2026-05-25")
+    target_date_str = datetime.now().strftime("%Y-%m-%d")
+
+    print(f"🚀 Procesando sesión automatizada para la fecha actual: {target_date_str}")
     
     # NOTA OPCIONAL: Si en el futuro prefieres que sea dinámico vía evento, 
     # puedes descomentar las siguientes líneas:
