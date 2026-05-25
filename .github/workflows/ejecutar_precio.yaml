@@ -229,13 +229,13 @@
 
 name: Deploy Balance Graph to ECR
 
-# Cambiamos esto para que NUNCA se ejecute solo en un push
+# Se desactiva el push automático y se cambia a ejecución manual
 on:
-  workflow_dispatch: # Permite ejecutarlo solo de forma manual haciendo clic en la web
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Code
-      print: "Workflow desactivado temporalmente"
+      run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ
