@@ -1,22 +1,3 @@
-# import streamlit as st
-# import pandas as pd
-# import numpy as np
-# import boto3
-# import plotly.express as px
-
-# # Configuración de página de Streamlit
-# st.set_page_config(page_title="Dashboard de Inversión", layout="wide")
-# st.title("📊 Evolución de Patrimonio Neto y Métricas de Trading")
-
-# # 1. Cargar Datos de DynamoDB con Caché para no saturar lecturas
-# @st.cache_data(ttl=60)
-# def cargar_datos_balance():
-#     # En App Runner, boto3 tomará automáticamente el Rol de IAM asignado al servicio
-#     dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-#     table = dynamodb.Table('daily_balance')
-    
-#     response = table.scan()
-#     data = response.get('Items', [])
 
 import streamlit as st
 import pandas as pd
