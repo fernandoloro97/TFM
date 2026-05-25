@@ -47,98 +47,101 @@
 
 # name: Ejecucion Diaria Precios
 
-# on:
-#   push:
-#     branches: [ main ]
-#   # schedule:
-#   #   - cron: '09 18 * * *' 
-#   workflow_dispatch: 
+name: Ejecutar Simulador Diario
 
-# jobs:
-#   ejecutar-script:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
+on:
+  # 1. Ejecución automática por tiempo (Lunes a Viernes a las 21:00 UTC / 23:00 España)
+  schedule:
+    - cron: '0 21 * * 1-5'
+  
+  # 2. Permite que tú puedas ejecutarlo haciendo clic en un botón cuando quieras probar
+  workflow_dispatch: 
 
-#       - name: Setup Python
-#         uses: actions/setup-python@v4
-#         with:
-#           python-version: '3.11'
+jobs:
+  ejecutar-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-#       - name: Install dependencies
-#         run: |
-#           pip install pandas boto3 requests pytz
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-#       - name: Run Script
-#         env:
-#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           AWS_DEFAULT_REGION: us-east-1
-#           API_KEY: ${{ secrets.API_KEY }}
-#           API_SECRET: ${{ secrets.API_SECRET }}
-#         run: python src/prices_and_volumes/prices_and_volumes_github.py
+      - name: Install dependencies
+        run: |
+          pip install pandas boto3 requests pytz
+
+      - name: Run Script
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          API_KEY: ${{ secrets.API_KEY }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+        run: python src/prices_and_volumes/prices_and_volumes_github.py
 
 
 
 
 # Esto es para las imagenes de datos
-name: Build and Push Multiple Images to ECR
+# name: Build and Push Multiple Images to ECR
 
-on:
-  push:
-    branches:
-      - main
+# on:
+#   push:
+#     branches:
+#       - main
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        include:
-          - repository: update_changes_sp500
-            dockerfile: dockerfiles/changes_sp500/dockerfile
+#     strategy:
+#       matrix:
+#         include:
+#           - repository: update_changes_sp500
+#             dockerfile: dockerfiles/changes_sp500/dockerfile
 
-          - repository: update_composition_sp500
-            dockerfile: dockerfiles/composition_sp500/dockerfile
+#           - repository: update_composition_sp500
+#             dockerfile: dockerfiles/composition_sp500/dockerfile
 
-          - repository: update_morningstar
-            dockerfile: dockerfiles/morningstar/dockerfile
+#           - repository: update_morningstar
+#             dockerfile: dockerfiles/morningstar/dockerfile
 
-          - repository: update_wikipedia_keys
-            dockerfile: dockerfiles/wikipedia_keys/dockerfile
+#           - repository: update_wikipedia_keys
+#             dockerfile: dockerfiles/wikipedia_keys/dockerfile
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ matrix.repository }}
-        run: |
-          docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:imagen_oficial \
-            -f ${{ matrix.dockerfile }} .
+#       - name: Build Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker build \
+#             -t $ECR_REGISTRY/$ECR_REPOSITORY:imagen_oficial \
+#             -f ${{ matrix.dockerfile }} .
 
-      - name: Push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ matrix.repository }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:imagen_oficial
+#       - name: Push Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:imagen_oficial
 
 
 # Esto es para SISTEMA DE TRADING
