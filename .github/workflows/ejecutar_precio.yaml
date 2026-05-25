@@ -226,3 +226,16 @@
 #         # Usamos -f para indicar dónde está el Dockerfile, pero el contexto es la raíz (.)
 #         docker build -f dockerfiles/balance_graph/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 #         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+name: Deploy Balance Graph to ECR
+
+# Cambiamos esto para que NUNCA se ejecute solo en un push
+on:
+  workflow_dispatch: # Permite ejecutarlo solo de forma manual haciendo clic en la web
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      print: "Workflow desactivado temporalmente"
