@@ -22,7 +22,8 @@ import torch.nn.functional as F
 
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from datetime import datetime, timedelta, date
+# from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dt_time
 from datetime import time as dt_time
 from collections import defaultdict, Counter
 
@@ -152,23 +153,62 @@ def finalizar_dataframe(noticias):
     return df
 
 
-hoy = datetime(2026, 5, 22)
+# # hoy = datetime(2026, 5, 22)
+# hoy = datetime.now()
 
-# 2. Calculamos las fechas relativas
-start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") 
+# print(f"📅 Variable 'hoy' actualizada dinámicamente: {hoy.strftime('%Y-%m-%d')}")
+
+# # 2. Calculamos las fechas relativas
+# start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") 
+# end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   
+
+# # 3. Llamada a tu función con las variables programadas
+# df_nyt = descargar_nyt_periodo(start, end, query="news")
+
+
+# # 1. Convertir la columna Date a formato datetime si aún no lo está
+# df_nyt['Date'] = pd.to_datetime(df_nyt['Date'])
+
+
+# # Ahora cambia estas dos líneas:
+# start_period = datetime.combine(hoy.date() - pd.Timedelta(days=1), dt_time(18, 0, 0))
+# end_period = datetime.combine(hoy.date(), dt_time(18, 0, 0))
+
+# 1. Capturar el momento actual de la ejecución
+hoy = datetime.now()
+dia_semana = hoy.weekday() # 0 = Lunes, 1 = Martes, ..., 4 = Viernes
+
+print(f"📅 Variable 'hoy' actualizada dinámicamente: {hoy.strftime('%Y-%m-%d')} (Día de la semana: {dia_semana})")
+
+# ==============================================================================
+# CONFIGURACIÓN DINÁMICA SEGÚN EL DÍA DE LA SEMANA
+# ==============================================================================
+if dia_semana == 0:
+    # 🚨 ES LUNES: Retrocedemos 3 días para cubrir desde el Viernes
+    dias_atras = 3
+    print("⏰ Detectado ejecución de Lunes. Extrayendo histórico acumulado del fin de semana (Viernes-Lunes).")
+else:
+    # 🗓️ MARTES A VIERNES: Mantenemos el comportamiento estándar de 1 día
+    dias_atras = 1
+
+# 2. Calculamos las fechas relativas amplias para la descarga de la API
+start = (hoy - timedelta(days=dias_atras)).strftime("%Y-%m-%d") 
 end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   
 
 # 3. Llamada a tu función con las variables programadas
 df_nyt = descargar_nyt_periodo(start, end, query="news")
 
-
 # 1. Convertir la columna Date a formato datetime si aún no lo está
 df_nyt['Date'] = pd.to_datetime(df_nyt['Date'])
 
-
-# Ahora cambia estas dos líneas:
-start_period = datetime.combine(hoy.date() - pd.Timedelta(days=1), dt_time(18, 0, 0))
+# ==============================================================================
+# FILTRADO EXACTO DE HORAS (18:00) TOLERANTE AL FIN DE SEMANA
+# ==============================================================================
+# Ajustamos dinámicamente el inicio del periodo usando la variable 'dias_atras'
+start_period = datetime.combine(hoy.date() - pd.Timedelta(days=dias_atras), dt_time(18, 0, 0))
 end_period = datetime.combine(hoy.date(), dt_time(18, 0, 0))
+
+print(f"🎯 Rango de filtrado de noticias: Desde {start_period} hasta {end_period}")
 
 # 3. Filtrar el DataFrame
 # Usamos >= y <= para incluir exactamente las 18:00
