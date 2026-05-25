@@ -1,6 +1,7 @@
 # # EJECUTA INFERENCIA
 name: Model Inference Pipeline
 
+
 on:
   push:
     branches: [ main ]  # Se ejecuta cada vez que subes cambios a main
