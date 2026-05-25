@@ -151,7 +151,7 @@ with col_izq:
     st.plotly_chart(fig, use_container_width=True)
 
 with col_der:
-    st.subheader(f"💰 Desglose Contable al {fecha_seleccionada}")
+    st.subheader(f"Desglose Contable al {fecha_seleccionada}")
     # Tabla 1: Componentes del patrimonio para la fecha seleccionada
     df_tabla_contable = pd.DataFrame({
         'Métrica': ['Efectivo', 'Valor de posiciones', 'Patrimonio Total'],

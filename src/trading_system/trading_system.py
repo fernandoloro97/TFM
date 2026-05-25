@@ -1373,7 +1373,7 @@ def handler(event, context):
     df_balance = sim.construir_balance(
         df_todo,
         precios_cierre_sesion,
-        fecha_inicio = datetime(2026, 5, 20).date()# <-- Usa solo date()
+        fecha_inicio = datetime(2026, 5, 21).date()# <-- Usa solo date()
     )
     
     if not df_todo.empty and 'estado' in df_todo.columns:
