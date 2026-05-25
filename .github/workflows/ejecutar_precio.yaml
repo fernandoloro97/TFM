@@ -142,54 +142,54 @@
 
 
 # Esto es para SISTEMA DE TRADING
-name: Build and Push Multiple Images to ECR
+# name: Build and Push Multiple Images to ECR
 
-on:
-  push:
-    branches:
-      - main
+# on:
+#   push:
+#     branches:
+#       - main
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        include:
-          - repository: update_trading_system
-            dockerfile: dockerfiles/trading_system/dockerfile
+#     strategy:
+#       matrix:
+#         include:
+#           - repository: update_trading_system
+#             dockerfile: dockerfiles/trading_system/dockerfile
 
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ matrix.repository }}
-        run: |
-          docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_7 \
-            -f ${{ matrix.dockerfile }} .
+#       - name: Build Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker build \
+#             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest_7 \
+#             -f ${{ matrix.dockerfile }} .
 
-      - name: Push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ matrix.repository }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_7
+#       - name: Push Docker image
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ matrix.repository }}
+#         run: |
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest_7
 
 
 # DESPLIEGO EL APPRUNNER
@@ -234,13 +234,13 @@ jobs:
 
 # name: Deploy Balance Graph to ECR
 
-# # Se desactiva el push automático y se cambia a ejecución manual
-# on:
-#   workflow_dispatch:
+# Se desactiva el push automático y se cambia a ejecución manual
+on:
+  workflow_dispatch:
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-#     steps:
-#     - name: Checkout Code
-#       run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ

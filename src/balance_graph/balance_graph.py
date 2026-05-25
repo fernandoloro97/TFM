@@ -47,19 +47,8 @@ def cargar_datos_balance():
 # Obtener registro real de AWS
 df_real = cargar_datos_balance()
 
-# 2. Inyección de las 2 filas simuladas solicitadas (21/05 y 22/05)
-# Extraemos el último equity disponible real
-ultimo_equity = float(df_real['equity_total'].iloc[-1])
-
-filas_simuladas = [
-    {'fecha': '2026-05-21', 'capital_cash': ultimo_equity + 10.0, 'valor_posiciones': 0.0, 'equity_total': ultimo_equity + 10.0},
-    {'fecha': '2026-05-22', 'capital_cash': ultimo_equity + 30.0, 'valor_posiciones': 0.0, 'equity_total': ultimo_equity + 30.0}
-]
-df_simulado = pd.DataFrame(filas_simuladas)
-
-# Unir y consolidar histórico definitivo
-df_historico = pd.concat([df_real, df_simulado], ignore_index=True).drop_duplicates(subset=['fecha'], keep='first')
-df_historico = df_historico.sort_values('fecha').reset_index(drop=True)
+# 2. El histórico definitivo se alimenta EXCLUSIVAMENTE de los datos reales de DynamoDB
+df_historico = df_real.copy()
 
 # 3. Componente Selector de Fecha en la Barra Lateral
 fechas_disponibles = df_historico['fecha'].tolist()
