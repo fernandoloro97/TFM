@@ -193,36 +193,36 @@
 
 # DESPLIEGO EL APPRUNNER
 
-name: Deploy Balance Graph to ECR
+# name: Deploy Balance Graph to ECR
 
-on:
-  push:
-    branches: [ main ] # Cambia por tu rama principal si es master
+# on:
+#   push:
+#     branches: [ main ] # Cambia por tu rama principal si es master
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - name: Checkout Code
+#       uses: actions/checkout@v3
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-east-1
+#     - name: Configure AWS Credentials
+#       uses: aws-actions/configure-aws-credentials@v2
+#       with:
+#         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#         aws-region: us-east-1
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+#     - name: Login to Amazon ECR
+#       id: login-ecr
+#       uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Build, Tag, and Push Image to ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: update_balance_graph # Nombre de tu repositorio ECR
-        IMAGE_TAG: latest
-      run: |
-        # Usamos -f para indicar dónde está el Dockerfile, pero el contexto es la raíz (.)
-        docker build -f dockerfiles/balance_graph/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+#     - name: Build, Tag, and Push Image to ECR
+#       env:
+#         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#         ECR_REPOSITORY: update_balance_graph # Nombre de tu repositorio ECR
+#         IMAGE_TAG: latest
+#       run: |
+#         # Usamos -f para indicar dónde está el Dockerfile, pero el contexto es la raíz (.)
+#         docker build -f dockerfiles/balance_graph/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+#         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
