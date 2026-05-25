@@ -30,8 +30,8 @@ def cargar_datos_balance():
     dynamodb = boto3.resource(
         'dynamodb',
         region_name='us-east-1',
-        aws_access_key_id=st.secrets["AKIASM3LKM65Y6UQHKEAD"],
-        aws_secret_access_key=st.secrets["3OoLHOwTLjX1l3xUMLlL2u2IFEmkt4Z9jNed5h1E"]
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"]
     )
     table = dynamodb.Table('daily_balance')
     
