@@ -1288,17 +1288,15 @@ else:
     print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
     
     
-# 2. Aplicar formateo estricto de tipos de datos
+# 2. Aplicar formateo estricto de tipos de datos (Corregido sin True_label)
 if not seynales_modelo.empty:
     # Columna de Texto (String)
     seynales_modelo['Tickers Mapeados'] = seynales_modelo['Tickers Mapeados'].astype(str)
     
     # Columnas de Números Enteros (Integers)
-    # pd.to_numeric convierte los tipos 'Decimal' de DynamoDB a números de Python
     seynales_modelo['ID'] = pd.to_numeric(seynales_modelo['ID'], errors='coerce').astype(int)
     seynales_modelo['Fila Noticia'] = pd.to_numeric(seynales_modelo['Fila Noticia'], errors='coerce').astype(int)
     seynales_modelo['Pred_label'] = pd.to_numeric(seynales_modelo['Pred_label'], errors='coerce').astype(int)
-    seynales_modelo['True_label'] = pd.to_numeric(seynales_modelo['True_label'], errors='coerce').astype(int)
     
     # Columna de Números Decimales (Float)
     seynales_modelo['Prob_up'] = pd.to_numeric(seynales_modelo['Prob_up'], errors='coerce').astype(float)
@@ -1310,8 +1308,9 @@ if not seynales_modelo.empty:
     seynales_modelo.reset_index(drop=True, inplace=True)
 else:
     # Estructura vacía con tipos definidos por si no hay registros
-    columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label', 'True_label']
+    columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label']
     seynales_modelo = pd.DataFrame(columns=columnas)
+
 
 # ==============================================================================
 # INSTANCIA Y EJECUCIÓN DEL SIMULADOR
