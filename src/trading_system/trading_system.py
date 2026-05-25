@@ -1375,11 +1375,15 @@ def handler(event, context):
         precios_cierre_sesion,
         fecha_inicio = datetime(2026, 5, 20).date()# <-- Usa solo date()
     )
-    # Filtrar solo pendientes
-    df_pendientes = df_todo[
-        df_todo['estado'].isin(['PENDIENTE_SALIR', 'PENDIENTE_ENTRAR'])
-    ].copy()
-
+    
+    if not df_todo.empty and 'estado' in df_todo.columns:
+        # Filtrar solo pendientes si la columna existe y hay datos
+        df_pendientes = df_todo[df_todo['estado'].isin(['PENDIENTE_SALIR', 'PENDIENTE_ENTRAR'])].copy()
+    else:
+        print("⚠️ df_todo está vacío o no contiene la columna 'estado'. Generando df_pendientes vacío.")
+        # Creamos un DataFrame vacío con las columnas estructurales que exige tu proceso de DynamoDB abajo
+        df_pendientes = pd.DataFrame(columns=['Tickers Mapeados', 'Fila Noticia', 'estado'])
+    
 
     # ==============================================================================
     # PROCESO 1: GUARDAR DF_PENDIENTES EN "pending_trade" (REEMPLAZAR TABLA ENTERA)
