@@ -1,9 +1,3 @@
-# !pip install spacy[transformers]
-# !python -m spacy download en_core_web_trf
-# !pip install ctransformers sentencepiece
-# !pip install rapidfuzz
-# !pip install groq
-
 import os
 import io
 import json
@@ -22,12 +16,10 @@ import torch.nn.functional as F
 
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-# from datetime import datetime, timedelta, date
 from datetime import datetime, timedelta, date, time as dt_time
 from datetime import time as dt_time
 from collections import defaultdict, Counter
 
-# Librerías específicas de NLP y ML
 import spacy
 from ctransformers import AutoModelForCausalLM
 from rapidfuzz import process, fuzz
@@ -40,47 +32,42 @@ from torch.utils.data import DataLoader, TensorDataset
 
 
 
-# Configuración de AWS (Boto3 usará las variables de entorno de GitHub Actions)
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # Cambia a tu región
+# Configuracion de AWS 
+dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 s3 = boto3.client('s3')
 
+# Transformo la tabla de dynmodb a dataframe
 def get_table_df(table_name):
     table = dynamodb.Table(table_name)
     response = table.scan()
     data = response['Items']
     
-    # Manejo de paginación si la tabla es grande
+    # Manejo la contiuidad para tablas grandes
     while 'LastEvaluatedKey' in response:
         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
         data.extend(response['Items'])
     
     return pd.DataFrame(data)
 
-# --- 1. LEER TABLAS DE DYNAMODB ---
+# Leo tablas de interes del dynamodb
 composicion_sp500_actualizado = get_table_df('historic_composition_sp500')
 wikipedia_actualizado = get_table_df('update_wikipedia_keys')
 morningstar = get_table_df('morningstar_classification')
 empresas_sectores_morningstar = get_table_df('companys_morningstar_sectors')
-# precios_cierre_sesion = get_table_df('sesion_close_prices')
-# volumenes_sesion = get_table_df('sesion_volumes')
-# pendientes_ayer = get_table_df('pending_trade')
-# # Descargamos el histórico para extraer el saldo de caja acumulado
-# historico_balance = get_table_df('daily_balance')
 
-# --- 2. DESCARGAR PESOS DESDE S3 ---
+# Descargo los pesos de mi red neuronal optimizada
 bucket_name = 'trained-neuronal-model'
 key = 'NN_41_weights.pth'
 
-print(f"Descargando {key} desde S3...")
 buffer = io.BytesIO()
 s3.download_fileobj(bucket_name, key, buffer)
 buffer.seek(0)
 
 
-# INICIO DEL CODIGO
-
+# Extraccion de noticias
 API_KEY = "1sO8gR66gfd7wAU8HaGYxqDMGhROZH0VsLMBY7WEXzjF6VgV"
 
+# Descargo noticias del NEW YORK TIMES segun un rango de fechas seleccionadas
 def descargar_nyt_periodo(fecha_inicio, fecha_final, query="news", max_paginas=100, sleep_time=6.0, reintentos=3):
     url = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
     noticias = []
@@ -126,12 +113,12 @@ def descargar_nyt_periodo(fecha_inicio, fecha_final, query="news", max_paginas=1
                     })
 
                 print(f"Página {page} descargada ({len(docs)} artículos).")
-                time.sleep(sleep_time) # Recomendado 6.0 para evitar bloqueos
+                time.sleep(sleep_time) 
                 break
 
             elif r.status_code in [429, 500]:
                 intento += 1
-                wait = 12 * intento # Aumentamos el tiempo de espera en errores
+                wait = 12 * intento 
                 print(f"Error {r.status_code} (Rate Limit/Server) en pág {page}, reintento {intento}/{reintentos}...")
                 time.sleep(wait)
             else:
@@ -140,10 +127,10 @@ def descargar_nyt_periodo(fecha_inicio, fecha_final, query="news", max_paginas=1
 
     return finalizar_dataframe(noticias)
 
+# Ajusto la hora de publicacion de noticias a la hora de Nueva York
 def finalizar_dataframe(noticias):
     df = pd.DataFrame(noticias)
     if not df.empty:
-        # Ajuste de horario a Nueva York (Resuelve lo de las 00:58 Z)
         df["Date"] = (
             pd.to_datetime(df["Date"], utc=True, format='ISO8601')
             .dt.tz_convert(ZoneInfo("America/New_York"))
@@ -153,80 +140,53 @@ def finalizar_dataframe(noticias):
     return df
 
 
-# # hoy = datetime(2026, 5, 22)
-# hoy = datetime.now()
-
-# print(f"📅 Variable 'hoy' actualizada dinámicamente: {hoy.strftime('%Y-%m-%d')}")
-
-# # 2. Calculamos las fechas relativas
-# start = (hoy - timedelta(days=1)).strftime("%Y-%m-%d") 
-# end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   
-
-# # 3. Llamada a tu función con las variables programadas
-# df_nyt = descargar_nyt_periodo(start, end, query="news")
-
-
-# # 1. Convertir la columna Date a formato datetime si aún no lo está
-# df_nyt['Date'] = pd.to_datetime(df_nyt['Date'])
-
-
-# # Ahora cambia estas dos líneas:
-# start_period = datetime.combine(hoy.date() - pd.Timedelta(days=1), dt_time(18, 0, 0))
-# end_period = datetime.combine(hoy.date(), dt_time(18, 0, 0))
-
-# 1. Capturar el momento actual de la ejecución
+# Guardo la fecha y dia de semana en el momento de ejecucion del codigo
 hoy = datetime.now()
-dia_semana = hoy.weekday() # 0 = Lunes, 1 = Martes, ..., 4 = Viernes
+dia_semana = hoy.weekday()
 
-print(f"📅 Variable 'hoy' actualizada dinámicamente: {hoy.strftime('%Y-%m-%d')} (Día de la semana: {dia_semana})")
+print(f"Fecha de hoy: {hoy.strftime('%Y-%m-%d')} (día de la semana: {dia_semana})")
 
-# ==============================================================================
-# CONFIGURACIÓN DINÁMICA SEGÚN EL DÍA DE LA SEMANA
-# ==============================================================================
+# Establezco el rango de dias a leer segun el dia de la semana
 if dia_semana == 0:
-    # 🚨 ES LUNES: Retrocedemos 3 días para cubrir desde el Viernes
+    # Si es lunes, retrocedo 3 dias para cubrir el fin de semana
     dias_atras = 3
     print("⏰ Detectado ejecución de Lunes. Extrayendo histórico acumulado del fin de semana (Viernes-Lunes).")
 else:
-    # 🗓️ MARTES A VIERNES: Mantenemos el comportamiento estándar de 1 día
+    # Si no es lunes, solo retrocedo un dia
     dias_atras = 1
 
-# 2. Calculamos las fechas relativas amplias para la descarga de la API
+# Calculo el rango de fechas
 start = (hoy - timedelta(days=dias_atras)).strftime("%Y-%m-%d") 
 end = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")   
 
-# 3. Llamada a tu función con las variables programadas
+# Descargo noticias
 df_nyt = descargar_nyt_periodo(start, end, query="news")
 
-# 1. Convertir la columna Date a formato datetime si aún no lo está
+# Convierto a data frame
 df_nyt['Date'] = pd.to_datetime(df_nyt['Date'])
 
-# ==============================================================================
-# FILTRADO EXACTO DE HORAS (18:00) TOLERANTE AL FIN DE SEMANA
-# ==============================================================================
-# Ajustamos dinámicamente el inicio del periodo usando la variable 'dias_atras'
+# Fijo las horas buscadas para el rango de fecha. Inicia al final del cierre del dia anterior hasta el cierre de hoy
 start_period = datetime.combine(hoy.date() - pd.Timedelta(days=dias_atras), dt_time(18, 0, 0))
 end_period = datetime.combine(hoy.date(), dt_time(18, 0, 0))
 
-print(f"🎯 Rango de filtrado de noticias: Desde {start_period} hasta {end_period}")
+print(f"Rango de filtrado de noticias: Desde {start_period} hasta {end_period}")
 
-# 3. Filtrar el DataFrame
-# Usamos >= y <= para incluir exactamente las 18:00
+# Filtro las noticias con el rango con fecha y hora antes calculado
 last_news = df_nyt[(df_nyt['Date'] >= start_period) & (df_nyt['Date'] <= end_period)].copy()
 
-# Ordenar por fecha para verificar
+# Ordeno por fecha 
 last_news = last_news.sort_values(by='Date')
 
-
-# Elimino filas con Na
+# Elimino las filas con NaN
 last_news = last_news.dropna(subset=['Section', 'Title'])
 
-# Reviso y elimino duplicados
+# Reviso  duplicados
 duplicate_news = last_news[last_news.duplicated(subset=["Title", "Content"], keep=False)]
 
-# 1. Eliminamos los duplicados manteniendo solo la primera fila encontrada
+# Elimino los duplicados manteniendo solo la primera fila encontrada
 unique_news = last_news.drop_duplicates(subset=["Title", "Content"], keep='first').reset_index(drop=True)
 
+# Lista de sección si rigos financiero
 black_list = [
     'Crosswords & Games', 'Gameplay', 'Movies', 'Arts', 'Theater', 'Books',
     'Book Review', 'Briefing', 'Today’s Paper', 'Times Insider', 'Corrections',
@@ -237,20 +197,24 @@ black_list = [
     'International Home', 'Lens', 'Universal', 'Home & Garden'
 ]
 
+# Quito las noticias ruidosas
 relevant_last_news = last_news[~last_news['Section'].isin(black_list)]
 
-# 1. Convertimos el objeto en una copia independiente y reseteamos el índice de una vez
+# Reseteo indice
 relevant_last_news = relevant_last_news.reset_index(drop=True)
 
-# 2. Ahora creamos la columna (ya no dará advertencia)
+# Creo una nueva columna: seccion + titulo + contenido
 relevant_last_news["Full Text"] = (
     "[SECTION] " + relevant_last_news["Section"] + "\n" +
     "[TITLE] " + relevant_last_news["Title"] + "\n" +
     "[CONTENT] " + relevant_last_news["Content"]
 )
 
+# Extraccion de palabras claves de empresas con NER
+# Descargo NER
 nlp = spacy.load("en_core_web_trf")
 
+# Extraigo organizaciones, personas y producto. Personas al final no lo usaré
 def extract_entities(text):
     doc = nlp(text)
 
@@ -261,14 +225,14 @@ def extract_entities(text):
             entities[ent.label_].add(ent.text)
 
     return entities
-
+ 
+# Aplico NER por bloques del total de noticias
 def run_ner_and_process(df, chunk_size=5):
     total = len(df)
     n_chunks = math.ceil(total / chunk_size)
 
     print(f"Total noticias: {total} → {n_chunks} bloques de ~{chunk_size}")
 
-    # Lista para acumular los DataFrames de cada bloque
     all_chunks = []
 
     for i in range(n_chunks):
@@ -289,7 +253,7 @@ def run_ner_and_process(df, chunk_size=5):
         elapsed = time.time() - start
         print(f"Procesado bloque {i}: {len(chunk)} noticias en {elapsed:.1f}s")
 
-        # Creamos el DataFrame del bloque actual
+        # Creo el dataFrame del bloque actual
         df_chunk = pd.DataFrame({
             "Date": chunk["Date"].values,
             "Full Text": chunk["Full Text"].values,
@@ -299,28 +263,29 @@ def run_ner_and_process(df, chunk_size=5):
             "All Names": [x if x else None for x in resultados["ALL_ENTITIES"]],
         })
 
-        # Lo guardamos en la lista en lugar de a un archivo
+        # Guardo el df en la lista
         all_chunks.append(df_chunk)
 
-    # Unimos todos los bloques en un solo DataFrame
+    # Uno todos los bloques en un solo df
     df_final = pd.concat(all_chunks, ignore_index=True)
     return df_final
 
-# Uso
+# Ejecucion de la extraccion de NER
 noticias_ner_mapeados = run_ner_and_process(relevant_last_news, chunk_size=5)
 
 
-# 1. CARGA DEL MODELO (Todo en uno)
+# Extraccion de palabras claves de sectores con LLM
+# Cargo el LLM mistral
 model = AutoModelForCausalLM.from_pretrained(
     "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
     model_file="mistral-7b-instruct-v0.2.Q4_K_M.gguf",
     model_type="mistral",
-    gpu_layers=0,  # Forzamos CPU
+    gpu_layers=0, 
     context_length=2048
 )
 
 
-#PASO 1: Tu función build_prompt (tu prompt actual sin cambios)
+# Prompt en ingles para extraer menciones financieras, canales economicos y pais afectado 
 def build_prompt(news_text):
     prompt = f"""
 <s>[INST]
@@ -328,9 +293,9 @@ You are a financial and economic event extractor for quantitative investment ana
 
 Your job is to extract ONLY explicit economic or financial information.
 
-------------------------------------------------------------
+
 1) FINANCIAL EVENT DETECTION (STRICT BUT COMPLETE)
-------------------------------------------------------------
+
 Determine whether the article describes a concrete economic or financial event.
 
 A valid financial event must involve at least one of the following:
@@ -373,9 +338,9 @@ Do NOT speculate.
 Do NOT infer future outcomes.
 unless explicit financial language is used.
 
-------------------------------------------------------------
+
 2) ECONOMIC CHANNELS (INDUSTRY MAPPING REQUIRED)
-------------------------------------------------------------
+
 If a financial event is identified,
 map it to the relevant productive industries,
 economic sectors, or market activities.
@@ -412,9 +377,9 @@ Rules:
   based on the nature of the entity or activity involved.
 • If a financial event exists, an industry mapping is REQUIRED.
 
-------------------------------------------------------------
+
 3) COUNTRIES / LOCATIONS
-------------------------------------------------------------
+
 Extract locations only when clearly identifiable.
 - Include continents, countries, regions, cities mentioned in the article.
 - Map political leaders to their country (e.g., Trump → United States).
@@ -423,9 +388,9 @@ Extract locations only when clearly identifiable.
 
 If no location is explicitly mentioned, return an empty list.
 
-------------------------------------------------------------
+
 4) OUTPUT FORMAT (MANDATORY)
-------------------------------------------------------------
+
 You MUST return all keys exactly as shown.
 If a category has no data, return [].
 Do NOT omit keys.
@@ -447,20 +412,17 @@ Article:
     return prompt
 
 
-# 2. FUNCIÓN DE EXTRACCIÓN (Adaptada a ctransformers)
+# Extraigo las palabras claves para las noticias
 def extract_events_batch(news_texts):
-    """Procesa los textos uno a uno (lo más estable en CPU)."""
     all_results = []
     for text in news_texts:
-        # Importante: Mistral requiere el formato [INST] [/INST]
         prompt = f"[INST] {build_prompt(text)} [/INST]"
-
-        # El modelo genera el texto directamente
         respuesta = model(prompt, max_new_tokens=250, temperature=0)
         all_results.append(respuesta)
+        
     return all_results
 
-# 3. LIMPIEZA DE SALIDA
+# Limpio la salidad del prompt
 def parse_llm_output_clean(text):
     try:
         clean_text = text.replace("```json", "").replace("```", "").strip()
@@ -479,7 +441,7 @@ def parse_llm_output_clean(text):
         "Countries Involved": format_list(data.get("countries_involved"))
     }
 
-# 4. PROCESADOR PRINCIPAL (Todo en memoria)
+# Extraccion y limpieza del LLM uno a uno 
 def procesar_todo_en_variable(df_original):
     total = len(df_original)
     resultados_lista = []
@@ -488,62 +450,61 @@ def procesar_todo_en_variable(df_original):
     print(f"Procesando {total} noticias en CPU...")
 
     for i, (idx, row) in enumerate(df_original.iterrows()):
-        # Procesamos de 1 en 1 para no saturar la RAM
         texto_noticia = [row["Full Text"]]
         respuesta_raw = extract_events_batch(texto_noticia)
 
-        # Limpiamos el JSON de la respuesta
         datos_limpios = parse_llm_output_clean(respuesta_raw[0])
 
-        # Guardamos en la lista
+        # Guardo en la lista
         resultados_lista.append({
             "Date": row["Date"],
             "Full Text": row["Full Text"],
             **datos_limpios
         })
 
-        # if (i + 1) % 5 == 0:
-        #     print(f"Progreso: {i+1}/{total} noticias finalizadas...")
         print(f"la noticia {i+1}/{total} ha terminado")
 
     df_final = pd.DataFrame(resultados_lista)
-    print(f"\n¡Listo! Tiempo total: {time.time() - inicio:.2f}s")
+    # Imprimo el tiempo porque suele demorar mucho
+    print(f"\nTiempo total: {time.time() - inicio:.2f}s")
+    
     return df_final
 
-# PARA USARLO:
+# Aplico la extraccion y limpieza
 noticias_sectores_mapeados = procesar_todo_en_variable(relevant_last_news)
 
+# Añado al df anterior una columna con las palabras claves de empresas obtenidas con NER
 noticias_keywords_mapeados = noticias_sectores_mapeados.copy()
 noticias_keywords_mapeados['All Names'] = noticias_ner_mapeados['All Names']
 
 
+# Transformacion las palabras claves de empresas de Wikipedia a un diccionario
+# Columnas de interes
 COLUMNAS_KEYWORDS = ["Company Name", "Company Name Clean", "Predecessor", "Products",
                      "Services", "Brands", "Divisions", "Subsidiaries"]
 
-# Construir índice invertido
-keyword_index = {}  # keyword → lista de tickers
+keyword_index = {}  
 
+# Transformo el df de palabras claves, tambien las limpio, a diccionario
 for _, row in wikipedia_actualizado.iterrows():
     ticker = row["Ticker"]
 
     keywords = []
     for col in COLUMNAS_KEYWORDS:
         if isinstance(row[col], str):
-            # Separar por comas y limpiar cada keyword
             items = [k.strip() for k in row[col].split(",") if k.strip()]
             keywords.extend(items)
 
     for kw in keywords:
         kw_lower = kw.lower()
-        # if len(kw_lower) < 4:  # descartar keywords demasiado cortas
-        #     continue
+
         if kw_lower not in keyword_index:
             keyword_index[kw_lower] = []
         if ticker not in keyword_index[kw_lower]:
             keyword_index[kw_lower].append(ticker)
 
 
-# Keywords repetidas solo de Products y Services
+# Keywords repetidas solo de productos y servicios
 keyword_prod_serv = {}
 
 for _, row in wikipedia_actualizado.iterrows():
@@ -559,13 +520,15 @@ for _, row in wikipedia_actualizado.iterrows():
                 if ticker not in keyword_prod_serv[kw_lower]:
                     keyword_prod_serv[kw_lower].append(ticker)
 
-# Mostrar solo las repetidas
+# Muestro solo los productos y servicios repetidos
 repetidas = {kw: tickers for kw, tickers in keyword_prod_serv.items() if len(tickers) > 1}
 
 
+# Columnas de interes
 COLUMNAS_KEYWORDS = ["Predecessor",  "Products", "Services",
                     "Brands", "Divisions", "Subsidiaries"]
-# Ver repetidas por columna de origen
+
+# Ultimo filtro de repetidas por columna
 for col in COLUMNAS_KEYWORDS:
     keyword_col = {}
     for _, row in wikipedia_actualizado.iterrows():
@@ -580,15 +543,13 @@ for col in COLUMNAS_KEYWORDS:
                     keyword_col[kw_lower].append(ticker)
 
     repetidas_col = {kw: tickers for kw, tickers in keyword_col.items() if len(tickers) > 1}
-    # if repetidas_col:
-    #     for kw, tickers in sorted(repetidas_col.items(), key=lambda x: len(x[1]), reverse=True):
-    #         print(f"  '{kw}' → {tickers}")
-    #         # Keywords repetidas en Products/Services (ya las tienes calculadas)
-keywords_a_eliminar = set(repetidas.keys())  # las de Products/Services
 
-# Añadir keywords repetidas en otras columnas con más de 4 tickers
+keywords_a_eliminar = set(repetidas.keys()) 
+
+# Columnas de interes
 OTRAS_COLUMNAS = ["Predecessor", "Brands", "Divisions", "Subsidiaries"]
 
+# Elimino repetidas que aparezcan en mas de 4 tickers
 for col in OTRAS_COLUMNAS:
     keyword_col = {}
     for _, row in wikipedia_actualizado.iterrows():
@@ -602,32 +563,32 @@ for col in OTRAS_COLUMNAS:
                 if ticker not in keyword_col[kw_lower]:
                     keyword_col[kw_lower].append(ticker)
 
-    # Eliminar solo las que aparecen en más de 4 tickers
     for kw, tickers in keyword_col.items():
         if len(tickers) > 4:
             keywords_a_eliminar.add(kw)
 
-# Construir índice final limpio
+# Construyo el df limpiecito
 keyword_index_clean = {kw: tickers for kw, tickers in keyword_index.items()
                        if kw not in keywords_a_eliminar}
 
 
+# Mapeo de noticias empresariales
+# Copia porque se usara ese df para el mapeo de noticias sectoriales tambien
 noticias_con_NER = noticias_keywords_mapeados.copy()
 
-
+# Me quedo con las palabras claves unicas obtenidas con NER 
 def get_unique_sorted_by_freq(df, column):
     all_items = df[column].dropna().str.split(", ")
     flat_list = [item.strip() for sublist in all_items for item in sublist]
-
     counts = Counter(flat_list)
 
-    # solo devolver las palabras ordenadas por frecuencia
     return [word for word, _ in counts.most_common()]
 
+# Obtengo las palabra unicas
 unique_names = get_unique_sorted_by_freq(noticias_con_NER, "All Names")
 keywords = [x.lower() for x in unique_names]
 
-
+# Mapeo por igualdad de palabras entre las palabras claves de NER y las oficial de las empresas (wikipedia)
 NER_mapeado = pd.DataFrame({
     "original": keywords,
     "mapped": [keyword_index_clean.get(x) for x in keywords]
@@ -635,23 +596,27 @@ NER_mapeado = pd.DataFrame({
 
 keys = list(keyword_index_clean.keys())
 
+# Ahora el mapeo es mediante parecido
 def get_match_info(x):
     match = process.extractOne(x, keys, scorer=fuzz.token_sort_ratio)
     if match:
-        return match  # (match_string, score, index)
+        return match  
     return (None, 0, None)
 
+# Ejecuto y veo los grados de similitud
 NER_mapeado["match"], NER_mapeado["score"], _ = zip(*NER_mapeado["original"].apply(get_match_info))
 
+# Umbral de similitud definida
 THRESHOLD = 90
-
 NER_mapeado["mapped_fuzzy"] = NER_mapeado.apply(
     lambda row: keyword_index_clean.get(row["match"]) if row["score"] >= THRESHOLD else None,
     axis=1
 )
 
+# Guardo las palabras no mapeados menores al 90% de coincidencia
 NER_bajo_score = NER_mapeado[NER_mapeado["score"] < THRESHOLD].copy()
 
+# Del df anterior, primero busco si comparten al menos un palabra igual
 def has_common_word(row):
     if not isinstance(row["original"], str) or not isinstance(row["match"], str):
         return False
@@ -661,13 +626,16 @@ def has_common_word(row):
 
     return len(original_words & match_words) > 0
 
+# Ejecuto para encontrar palabras en comun
 NER_bajo_score["common_word"] = NER_bajo_score.apply(has_common_word, axis=1)
 
+# Solo pasare al siguiente filtro las palabras que tuvieron al menos un palabra igual
 NER_candidatos = NER_bajo_score[NER_bajo_score["common_word"] == True].copy()
 
-# ── Groq client ────────────────────────────────────────────────────────────
+# Utilizo un LLM para filtrar si realmente las palabras candidatas anteriors realmente reprensentan a una empresa
 groc_client = Groq(api_key="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")
 
+# Prompt para el mapeo final
 def build_groc_prompt(original, match):
     prompt = f"""
 You are an expert in company name recognition and entity matching.
@@ -690,6 +658,7 @@ Respond ONLY with a JSON object like this:
 """
     return prompt
 
+# Aplico el prompt a las candidatas
 def check_relation_groc(original, match):
     prompt = build_groc_prompt(original, match)
 
@@ -700,44 +669,39 @@ def check_relation_groc(original, match):
         max_tokens=100
     )
 
-    # Parsear JSON
-    import json
     try:
         return json.loads(response.choices[0].message.content)
     except:
         return {"result": "Maybe", "reason": "Could not parse response"}
 
-# Supongamos que df_candidates tiene 'original' y 'match'
-
+# Transformo el output del prompt a true y false
 def parse_llm_output(row):
     llm_result = check_relation_groc(row["original"], row["match"])
-
-    # Convertir "Yes" a True, "No" a False, "Maybe" a False
     result_bool = llm_result.get("result", "Maybe") == "Yes"
-
     reason = llm_result.get("reason", "")
 
     return pd.Series([result_bool, reason])
 
-
+# Aplico la funcion anterior
 NER_candidatos[["LLM_check_bool", "LLM_reason"]] = NER_candidatos.apply(parse_llm_output, axis=1)
 
+# Creo nueva columna de palabras mapeadas de wikipeda con LLM
 NER_candidatos["mapped_llm"] = NER_candidatos.apply(
     lambda row: keyword_index_clean.get(row["match"]) if row["LLM_check_bool"] else None,
     axis=1
 )
 
-# Actualizar solo las filas donde mapped_LLM no es None
+# Quito NaN
 mask = NER_candidatos['mapped_llm'].notna()
-
 NER_mapeado.loc[NER_candidatos[mask].index, 'mapped_fuzzy'] = NER_candidatos.loc[mask, 'mapped_llm']
 
-# Crear lookup con clave en minúsculas
+# Creo diccionario con las palabras mapeadas
 lookup = NER_mapeado.dropna(subset=['mapped_fuzzy']).set_index('original')['mapped_fuzzy'].to_dict()
 
+# Añado el ticker por palabra de NER mapeado, sin repeticiones
 def map_names_to_tickers(all_names):
     if pd.isna(all_names) or not all_names:
-        return [] # Mejor devolver lista vacía que None para facilitar el cruce
+        return [] 
 
     names = [n.strip() for n in all_names.split(',')]
     tickers = []
@@ -750,47 +714,43 @@ def map_names_to_tickers(all_names):
             else:
                 tickers.append(ticker)
 
-    # Eliminamos duplicados
     tickers = list(dict.fromkeys(tickers))
 
-    # CAMBIO AQUÍ: Devuelve la lista directamente, NO el ".join"
     return tickers
 
+# Df con los tickers mapeados
 noticias_con_NER['Tickers'] = noticias_con_NER['All Names'].apply(map_names_to_tickers)
 
-
+# Auditoria de palabras claves de noticias con Tickers
+# Busco la razon de mapeo de dichas palabras con los tickers
 def get_mapping_con_evidencia(tickers_noticia, all_names_noticia, df_keywords, df_ref):
-    # Normalizamos All Names a una lista limpia en minúsculas
     if isinstance(all_names_noticia, str):
         all_names_list = [n.strip().lower() for n in all_names_noticia.split(',')]
     else:
         all_names_list = [str(n).strip().lower() for n in all_names_noticia]
 
-    # Copia temporal para búsqueda insensible a mayúsculas
     df_temp = df_keywords.copy()
     df_temp['original_lower'] = df_temp['original'].str.lower().str.strip()
 
     mapping_entries = []
 
     for ticker in tickers_noticia:
-        # Nombre oficial del SP500
         nombre_oficial = df_ref.loc[df_ref['Ticker'] == ticker, 'Company Name'].values
         nombre_oficial = nombre_oficial[0] if len(nombre_oficial) > 0 else "Unknown Entity"
 
-        # Buscamos qué palabra de 'All Names' disparó este ticker en mapped_fuzzy
         mask = (df_temp['original_lower'].isin(all_names_list)) & \
                (df_temp['mapped_fuzzy'].apply(lambda x: ticker in x if isinstance(x, list) else ticker == str(x)))
 
         palabras_match = df_temp[mask]['original'].unique().tolist()
         evidencia = ", ".join(palabras_match) if palabras_match else "Contextual match"
 
-        # Formato de auditoría: "TICKER (Empresa) -> Sugerido por: 'palabra'"
         mapping_entries.append(f"- {ticker} ({nombre_oficial}). Razón: keyword '{evidencia}'")
 
     return "\n".join(mapping_entries)
 
+# Prompt del LLM de auditaria financiera para controlar mapping sin el contexto de las noticias
 def audit_tickers_with_groq(full_text, mapping_evidencia):
-    # Prompt de auditoría financiera
+   
     system_prompt = """Act as a strict Financial Entity Auditor. Your goal is to filter a list of stock tickers by validating the "Evidence Mapping" against the "News Text".
 
 CORE AUDIT RULES:
@@ -823,7 +783,7 @@ INPUT:
 
     try:
         completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",  # <--- CAMBIA ESTO
+        model="llama-3.3-70b-versatile",  
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -833,7 +793,6 @@ INPUT:
 
         res = completion.choices[0].message.content.strip()
 
-        # Limpieza de Markdown por si acaso
         if "```" in res:
             res = res.split("```")[-2].replace("python", "").strip()
 
@@ -842,7 +801,7 @@ INPUT:
         print(f"Error en auditoría: {e}")
         return []
 
-
+# Proceso la auditoria para cada noticias con palabras claves mapeadas
 def procesar_noticias_muchos_tickers(df, df_keywords, df_ref, delay=0.5):
     resultado = df[['Full Text', 'All Names', 'Tickers']].copy()
     resultado['Tickers Filtrados'] = None
@@ -889,7 +848,7 @@ def procesar_noticias_muchos_tickers(df, df_keywords, df_ref, delay=0.5):
             errores.append({'idx': idx, 'error': str(e)})
             resultado.at[idx, 'Tickers Filtrados'] = []
             resultado.at[idx, 'Cambios']           = None
-            break  # para en el primer error grave para no consumir más tokens
+            break 
 
     procesadas = resultado['Cambios'].notna().sum()
     print(f"\n{'Completado' if not errores else 'Parcial'}. Filas procesadas: {procesadas}/{total}")
@@ -898,25 +857,34 @@ def procesar_noticias_muchos_tickers(df, df_keywords, df_ref, delay=0.5):
 
     return resultado
 
+# Filtro noticias con mas de un ticker mapeado
 noticias_muchos_tickers = noticias_con_NER[noticias_con_NER['Tickers'].apply(lambda x: len(x) > 1)]
 
 
-# 1. Validación inicial: Si está vacío, creamos una lista vacía para 'resultados'
+# Si no hay candidatos para auditar, devuelvo el df final vacio
 if noticias_muchos_tickers.empty:
-    print("El DataFrame 'noticias_muchos_tickers' está vacío. Saltando procesamiento.")
-    noticias_auditadas = pd.DataFrame() # Creamos un DF vacío final
+    print("El DataFrame 'noticias_muchos_tickers' está vacío. Me salto el procesamiento.")
+    noticias_auditadas = pd.DataFrame() 
 else:
-    # Dividir en 6 partes
+    # Divido en 6 partes
     partes = np.array_split(noticias_muchos_tickers, 6)
 
+    # Ejecuto la auditoria por partes
     for i, parte in enumerate(partes):
-        # Manejo de partes vacías dentro del split (por si hay menos de 6 filas)
-        if not parte.empty:
-            print(f"Parte {i+1}: {len(parte)} filas | índices {parte.index[0]} a {parte.index[-1]}")
-        else:
-            print(f"Parte {i+1}: 0 filas (Vacía)")
 
-    api_keys = ["gsk_Sros...", "gsk_IEll...", "gsk_X1iU...", "gsk_hz9D...", "gsk_Zguy...", "gsk_2WvT..."]
+        if not parte.empty:
+            print(f"Parte {i+1}: {len(parte)} filas | indices {parte.index[0]} a {parte.index[-1]}")
+        else:
+            print(f"Parte {i+1}: 0 filas (vacia)")
+
+    api_keys = [
+        "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", 
+        "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", 
+        "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", 
+        "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", 
+        "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", 
+        "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"
+    ]
 
     resultados = []
     for i, (parte, key) in enumerate(zip(partes, api_keys)):
@@ -924,20 +892,19 @@ else:
         if parte.empty:
             continue
 
-        print(f"\n Procesando parte {i+1}/6 con key {i+1}...")
-        # Asumiendo que Groq ya está importado
+        print(f"\n Procesando parte {i+1}/6 con key {i+1}")
         client = Groq(api_key=key)
         resultado = procesar_noticias_muchos_tickers(parte, NER_mapeado, wikipedia_actualizado)
         resultados.append(resultado)
 
-    # 2. Unir todo (solo si hay resultados)
+    # Uno los resultados, si es que hay
     if resultados:
         noticias_auditadas = pd.concat(resultados)
     else:
         noticias_auditadas = pd.DataFrame()
 
 
-# Solo intentamos actualizar si noticias_auditadas tiene filas
+# Actualizo los tickers corregidos por la auditoria, si es que hay noticias auditadas
 if not noticias_auditadas.empty:
     noticias_con_NER.loc[noticias_auditadas.index, 'Tickers'] = noticias_auditadas['Tickers Filtrados']
     print(f"Se actualizaron {len(noticias_auditadas)} filas.")
@@ -945,38 +912,36 @@ else:
     print("No hay noticias auditadas para actualizar.")
 
 
-
-# 1. Asegurar que las fechas estén en formato datetime y solo fecha (sin hora)
+# Aseguro el formato datetime para las fechas
 noticias_con_NER['Date_only'] = pd.to_datetime(noticias_con_NER['Date']).dt.date
 composicion_sp500_actualizado['Date'] = pd.to_datetime(composicion_sp500_actualizado['Date']).dt.date
 
-# 2. Convertir los tickers del universo (df2) en un diccionario de sets para búsqueda rápida
-# Asumimos que los tickers en df2 están separados por ", "
+# Convierto los tickers de mi historico a un diccionario
 universo_dict = composicion_sp500_actualizado.set_index('Date')['Ticker'].str.split(', ').apply(set).to_dict()
 
-# 3. Función para filtrar los tickers
+# Me quedo con los tickers mapeados que estuvieron ese dia en el SP500
 def filtrar_tickers(row):
     fecha = row['Date_only']
     tickers_fila = row['Tickers']
 
-    # Si la lista está vacía o la fecha no está en el universo, devolvemos lista vacía
     if not tickers_fila or fecha not in universo_dict:
         return []
 
-    # El universo de ese día
     universo_dia = universo_dict[fecha]
 
-    # Retornamos solo los que coinciden
     return [t for t in tickers_fila if t in universo_dia]
 
-# 4. Crear la nueva columna
+# Aplico el filtro
 noticias_con_NER['Tickers'] = noticias_con_NER.apply(filtrar_tickers, axis=1)
 
-# Opcional: eliminar la columna auxiliar de fecha
+# Elimino la columna con sola la fecha
 noticias_con_NER = noticias_con_NER.drop(columns=['Date_only'])
 
+# Mapeo de noticias sectoriales
+# Creo una copia 
 noticias_con_sector = noticias_keywords_mapeados.copy()
 
+# Obtengo valores uncos de canales economicos
 def get_unique_sorted_by_freq(df, column):
     all_items = df[column].dropna().str.split(", ")
     flat_list = [item.strip() for sublist in all_items for item in sublist]
@@ -986,34 +951,29 @@ def get_unique_sorted_by_freq(df, column):
     # solo devolver las palabras ordenadas por frecuencia
     return [word for word, _ in counts.most_common()]
 
+# Ejecuto la anterior funcion
 unique_channels = get_unique_sorted_by_freq(noticias_keywords_mapeados, "Economic Channels")
 
-
-# ── Groq client ────────────────────────────────────────────────────────────
+# Mapeo de palabras claves sectoriales con las oficial del clasificador de Morningstar
 groq_client = Groq(api_key="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")
 
-
+# Transformo el df de grupos estructurados del clasificador de Morningstar a diccionario
 def parse_morningstar_df(df: pd.DataFrame) -> dict:
-    # 1. Obtener sectores únicos (llaves con valores vacíos como el original)
     sectors = {sector: "" for sector in df["Sector"].unique()}
 
-    # 2. Convertir el DataFrame a la lista de diccionarios de industrias
-    # Renombramos columnas para que coincidan con la estructura que esperas
     industries = df.rename(columns={
         "Sector": "sector",
         "Industry Group": "industry_group",
         "Industry": "industry"
     }).to_dict(orient="records")
 
-    # Si el DF no tiene descripción, añadimos el campo vacío por compatibilidad
     for item in industries:
         if "description" not in item:
             item["description"] = ""
 
     return {"sectors": sectors, "industries": industries}
 
-
-# ── 2. Construir catálogo de 3 niveles ─────────────────────────────────────
+# Construyo una catalago de 3 niveles: sectores, grupos industriales e industrias
 def build_catalog(parsed: dict) -> dict:
 
     industries    = parsed["industries"]
@@ -1029,7 +989,7 @@ def build_catalog(parsed: dict) -> dict:
     for (sector, group), members in groups.items():
         sector_groups[sector].append((group, members))
 
-    # Nivel Industry
+    # Nivel industria
     for ind in industries:
         catalog_inds.append({
             "level":          "industry",
@@ -1039,7 +999,7 @@ def build_catalog(parsed: dict) -> dict:
             "text":           ind["industry"]
         })
 
-    # Nivel Industry Group
+    # Nivel grupo industrial
     for (sector, group), members in groups.items():
         catalog_groups.append({
             "level":          "industry_group",
@@ -1049,7 +1009,7 @@ def build_catalog(parsed: dict) -> dict:
             "text":           group
         })
 
-    # Nivel Sector
+    # Nivel sector
     for sector, groups_list in sector_groups.items():
         catalog_sectors.append({
             "level":          "sector",
@@ -1066,19 +1026,18 @@ def build_catalog(parsed: dict) -> dict:
     }
 
 
+# Transformo a embedding para los grupos economicos del catalogo
 def build_embeddings(catalog: dict, model: SentenceTransformer):
     embeddings = {}
     for level, items in catalog.items():
-        # Extraemos solo el texto de cada item en el catálogo
         texts = [item["text"] for item in items]
 
-        print(f"Generando embeddings para {level} ({len(texts)} entradas)...")
-        # El modelo convierte el texto en vectores numéricos
+        print(f"Generando embeddings para {level} ({len(texts)} entradas)")
         embeddings[level] = model.encode(texts, show_progress_bar=True)
 
     return embeddings
 
-# ── 4. Limpiar input ───────────────────────────────────────────────────────
+# Limpio y normalizo
 def clean_nlp_input(text: str) -> str:
     noise   = r'\b(sector|industry|market)\b'
     cleaned = re.sub(noise, '', text, flags=re.IGNORECASE).strip()
@@ -1086,7 +1045,8 @@ def clean_nlp_input(text: str) -> str:
     return cleaned.lower()
 
 
-# ── 5. Clasificador LLM ────────────────────────────────────────────────────
+# Clasifico las palabras claves de sectores con los grupos de Morningstar con un prompt en ingles de LLM
+# Uso esta funcion para un nivel de similitud de coseno bajo, poco fiable
 def classify_with_llm(nlp_input: str, catalog: dict, probable_sectors: list = None) -> dict:
 
     sectors_list = "\n".join(
@@ -1200,7 +1160,6 @@ Respond ONLY with a JSON object, no explanation, no markdown:
                     "level": "unclassified",
                     "reason": f"unknown industry: {industry}"}
 
-        # ── NUEVO: corrige inconsistencias entre level y campos rellenos ──
         if sector and industry_group and industry:
             level = "industry"
         elif sector and industry_group and not industry:
@@ -1210,7 +1169,6 @@ Respond ONLY with a JSON object, no explanation, no markdown:
         else:
             level = "unclassified"
 
-        # Construye label según nivel
         if level == "industry" and sector and industry_group and industry:
             label = f"{sector} > {industry_group} > {industry}"
         elif level == "industry_group" and sector and industry_group:
@@ -1234,7 +1192,7 @@ Respond ONLY with a JSON object, no explanation, no markdown:
         return {"sector": None, "industry_group": None, "industry": None,
                 "level": "unclassified", "reason": f"error: {str(e)}"}
 
-# ── 6. Función de normalización completa ──────────────────────────────────
+# Construyo y estandarizo un diccionario de los resultados directos obtenido por un alto de nivel de similitud de coseno
 def build_result_embedding(nlp_output, cleaned, best_item, level,
                   confidence, best_per_level, top_n,
                   llm_used, llm_reason, source):
@@ -1283,13 +1241,13 @@ def build_result_embedding(nlp_output, cleaned, best_item, level,
         "top_n":          top_n
     }
 
-
+# Construyo y estandarizo los resultado del LLM
 def build_result_LLM(nlp_output, cleaned, llm_result, confidence,
                     best_per_level, top_n, llm_used, llm_reason, source):
 
   sector         = llm_result.get("sector")
   industry_group = llm_result.get("industry_group")
-  industry       = llm_result.get("industry")  # ← NUEVO
+  industry       = llm_result.get("industry") 
   level          = llm_result.get("level", "unclassified")
   label          = llm_result.get("label")
 
@@ -1299,7 +1257,7 @@ def build_result_LLM(nlp_output, cleaned, llm_result, confidence,
       "label":          label,
       "sector":         sector,
       "industry_group": industry_group,
-      "industry":       industry,  # ← NUEVO
+      "industry":       industry,  
       "level":          level,
       "confidence":     round(confidence, 3),
       "llm_used":       llm_used,
@@ -1311,7 +1269,8 @@ def build_result_LLM(nlp_output, cleaned, llm_result, confidence,
       "top_n":          top_n
   }
 
-
+# Mapeo las palabras claves de sector con las del clasificador de Morningstar, viendo primero la similitud de coseno
+# Si es mayor a 0.65, lo doy por bueno, pero si es menor, pasa por un prompt de LLM que termine de mapearlo
 def normalize_sector(nlp_output: str,
                      catalog: dict,
                      embeddings: dict,
@@ -1356,7 +1315,7 @@ def normalize_sector(nlp_output: str,
     best_score   = winner["score"]
     best_item    = winner["item"]
 
-    # ── NUEVO: extrae top 2 sectores por score ──
+    # Cojo solo los 2 mejores sectores de similitud
     sector_items  = catalog["sectors"]
     sector_embs   = embeddings["sectors"]
     sector_scores = cosine_similarity(query_emb, sector_embs)[0]
@@ -1369,7 +1328,7 @@ def normalize_sector(nlp_output: str,
         "industries": "industry"
     }
 
-    # Score demasiado bajo → LLM clasifica directamente
+    # Un score demasiado bajo:LLM clasifica directamente
     if best_score < threshold_min:
         llm_result = classify_with_llm(cleaned, catalog, probable_sectors)
         return build_result_LLM(nlp_output, cleaned, llm_result,
@@ -1377,7 +1336,7 @@ def normalize_sector(nlp_output: str,
                                 llm_used=True, llm_reason=llm_result["reason"],
                                 source="llm_direct")
 
-    # Score alto → embedding directo sin LLM
+    # Un score alto: embedding directo sin LLM
     if best_score >= threshold_high:
         return build_result_embedding(nlp_output, cleaned, best_item,
                              level_map[winner_level], best_score,
@@ -1385,7 +1344,7 @@ def normalize_sector(nlp_output: str,
                              llm_used=False, llm_reason="high confidence",
                              source="embedding")
 
-    # Score medio → LLM clasifica
+    # Un score medio: LLM clasifica
     llm_result = classify_with_llm(cleaned, catalog, probable_sectors)
 
     if llm_result["level"] != "unclassified":
@@ -1401,8 +1360,8 @@ def normalize_sector(nlp_output: str,
 
 
 
-# ── 7. Ejecutar ────────────────────────────────────────────────────────────
-parsed     = parse_morningstar_df(morningstar)  #Debo adpatar a que sea una tabla
+# Ejecuto todo el pipeline de mapeo para noticias sectoriales
+parsed     = parse_morningstar_df(morningstar) 
 catalog    = build_catalog(parsed)
 model      = SentenceTransformer("all-MiniLM-L6-v2")
 embeddings = build_embeddings(catalog, model)
@@ -1410,7 +1369,6 @@ embeddings = build_embeddings(catalog, model)
 levels = Counter(item["level"] for level_items in catalog.values()
                  for item in level_items)
 
-# ── 8. Procesar inputs con checkpoint ─────────────────────────────────────
 resultados = []
 
 for i, s in enumerate(unique_channels):
@@ -1423,13 +1381,14 @@ for i, s in enumerate(unique_channels):
 
     except Exception as e:
         if "429" in str(e):
+            # Guardo lo avanzado
             print(f"Rate limit en keyword {i+1}: {s}")
-            print(f"Guardando {len(resultados)} resultados...")
+            print(f"Guardando {len(resultados)} resultados")
             break
         else:
             raise e
 
-# ── 9. Mostrar resultados ──────────────────────────────────────────────────
+# Muestro los resultados en un df
 clasificacion_sector = pd.DataFrame([{
     "input":      r["input"],
     "label":      r["label"],
@@ -1440,13 +1399,14 @@ clasificacion_sector = pd.DataFrame([{
     "llm_reason": r["llm_reason"]
 } for r in resultados])
 
+# Diccionario de mapeo
 mapeo = {}
 for _, row in clasificacion_sector.iterrows():
     if row["level"] not in ["unclassified", "error"]:
         mapeo[row["input"]] = row["output"]
 
+# Genero los grupos economicos oficiales sin repetir dado los canales economicos por noticia
 def mapear_canales(economic_channels_str, mapeo):
-    # Si no hay datos de entrada, devolvemos una lista vacía
     if pd.isna(economic_channels_str):
         return []
 
@@ -1460,11 +1420,12 @@ def mapear_canales(economic_channels_str, mapeo):
     # CAMBIO: Si no hay resultados, devolvemos [] en lugar de None
     return resultados if resultados else []
 
+# Aplico la funcion anterior para crear la columna Morningstar
 noticias_con_sector["Morningstar"] = noticias_con_sector["Economic Channels"].apply(
     lambda x: mapear_canales(x, mapeo)
 )
 
-# Paso 1: construye índice
+# Diccionario de sectores, grupos indutriales e industrias por ticker
 empresa_por_clasificador = {}
 
 for _, row in empresas_sectores_morningstar.iterrows():
@@ -1475,92 +1436,85 @@ for _, row in empresas_sectores_morningstar.iterrows():
             empresa_por_clasificador[clasificador].append(row["Ticker"])
 
 
-# Paso 2: mapea a tickers (siempre devolviendo listas)
+# Mapeo de tickers por los grupos economicos oficial mapeaos de Morningstar
 def obtener_tickers(morningstar_list):
-    # Si es None, NaN o una lista vacía [], devolvemos lista vacía
     if not isinstance(morningstar_list, list) or not morningstar_list:
         return []
 
     tickers = []
     for clasificador in morningstar_list:
-        # Buscamos en el diccionario y extendemos la lista
         encontrados = empresa_por_clasificador.get(clasificador, [])
         tickers.extend(encontrados)
 
-    # Eliminamos duplicados manteniendo el orden
     resultado = list(dict.fromkeys(tickers))
 
-    # Devolvemos la lista (aunque esté vacía) para mantener consistencia
     return resultado
 
+# Aplico el mapeo con tickers
 noticias_con_sector["Tickers"] = noticias_con_sector["Morningstar"].apply(obtener_tickers)
 
 
-# 1. Asegurar que las fechas estén en formato datetime y solo fecha (sin hora)
+# Aseguro el formato datetime para las fechas
 noticias_con_sector['Date_only'] = pd.to_datetime(noticias_con_sector['Date']).dt.date
 composicion_sp500_actualizado['Date'] = pd.to_datetime(composicion_sp500_actualizado['Date']).dt.date
 
-# 2. Convertir los tickers del universo (df2) en un diccionario de sets para búsqueda rápida
-# Asumimos que los tickers en df2 están separados por ", "
+# Convierto los tickers de mi historico a un diccionario
 universo_dict = composicion_sp500_actualizado.set_index('Date')['Ticker'].str.split(', ').apply(set).to_dict()
 
-# 3. Función para filtrar los tickers
+# Filtro los tickers que no estaban en el SP500 el dia de la publicacion de la noticia
 def filtrar_tickers(row):
     fecha = row['Date_only']
     tickers_fila = row['Tickers']
 
-    # Si la lista está vacía o la fecha no está en el universo, devolvemos lista vacía
     if not tickers_fila or fecha not in universo_dict:
         return []
 
-    # El universo de ese día
     universo_dia = universo_dict[fecha]
 
-    # Retornamos solo los que coinciden
     return [t for t in tickers_fila if t in universo_dia]
 
-# 4. Crear la nueva columna
+# Aplico la funcion de filtro de tickers
 noticias_con_sector['Tickers'] = noticias_con_sector.apply(filtrar_tickers, axis=1)
 
-# Opcional: eliminar la columna auxiliar de fecha
+# Elimino la columnas auxiliar de solo fechas
 noticias_con_sector = noticias_con_sector.drop(columns=['Date_only'])
 
-# 2. Construimos el DataFrame base (sin Morningstar ni el Tickers original)
+
+# Contruyo mi df de inputs para el analisis gramatical
 noticias_input = noticias_con_sector.drop(columns=['Morningstar', 'Tickers'], errors='ignore').copy()
 
-# 3. Insertamos las columnas en el orden solicitado
+# Añado los tickers mapeados tanto de noticias empresariales como sectoriales
 noticias_input['Tickers Sector'] = noticias_con_sector['Tickers']
 noticias_input['Tickers Empresa'] = noticias_con_NER['Tickers']
 
-# 4. Creamos la columna combinada
-# Al ser ya listas limpias, la suma y el set funcionarán sin errores
+# Creo un columnas con los tickers totales mapeados
 noticias_input['Tickers Combinados'] = [
     sorted(list(set(s + e))) for s, e in zip(noticias_input['Tickers Sector'], noticias_input['Tickers Empresa'])
 ]
 
-
-
-# Condición 1: (All Names y Financial Mentions NO son Na) Y (Tickers Empresa NO está vacío)
+# Condicion para noticias empresariales: Debe tener palabras claves obtenidas en NER, mencion financieras y tickers mapeados
 condicion_1 = (
     noticias_input['All Names'].notna() &
     noticias_input['Financial Mentions'].notna() &
     (noticias_input['Tickers Empresa'].str.len() > 0)
 )
 
-# Condición 2: (Economic Channels NO es Na) Y (Tickers Sector NO está vacío)
+# Condicion para noticias sectoriales: Debe tener canales economicos y tickers mapeados
 condicion_2 = (
     noticias_input['Economic Channels'].notna() &
     (noticias_input['Tickers Sector'].str.len() > 0)
 )
 
-# Filtro final: Se queda si cumple Condición 1 O Condición 2
+# Filtro final, me quedo con las noticias que cumplieron al menos una condicion
 noticias_input_filtrado = noticias_input[condicion_1 | condicion_2].copy()
 noticias_input_filtrado = noticias_input_filtrado.reset_index(drop=True)
 
-# Imprime True si está vacío, False si tiene filas
-print(f"¿Está vacío?: {noticias_input_filtrado.empty}") 
+# Reviso si no se encontraron noticias que superaran ese filtro
+print(f"¿Hay noticias candidatas para analizarlas gramaticalmente?: {noticias_input_filtrado.empty}") 
 
-# Cambiamos el nombre de la variable a 'llm'
+# Analisis gramatical de noticias empresariales y sectoriales
+
+# Descargo el modelo de mistral
 llm = AutoModelForCausalLM.from_pretrained(
     "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
     model_file="mistral-7b-instruct-v0.2.Q4_K_M.gguf",
@@ -1569,6 +1523,7 @@ llm = AutoModelForCausalLM.from_pretrained(
     context_length=2048
 )
 
+# Genero una lista de palabras claves de empresas obtenidas con NER que tienen un ticker mapeado
 def get_keywords_empresa(tickers_noticia, all_names_noticia, df_keywords):
     if isinstance(all_names_noticia, str):
         all_names_list = [n.strip().lower() for n in all_names_noticia.split(',')]
@@ -1587,18 +1542,17 @@ def get_keywords_empresa(tickers_noticia, all_names_noticia, df_keywords):
         palabras_match = df_temp[mask]['original'].unique().tolist()
         keywords_encontradas.extend(palabras_match)
 
-    # Deduplicar manteniendo orden
     return list(dict.fromkeys(keywords_encontradas))
 
 
-# input → label Morningstar
+# Diccionario del mapeo de noticias sectoriales
 mapeo = {}
 for _, row in clasificacion_sector.iterrows():
     if row["level"] not in ["unclassified", "error"]:
         mapeo[row["input"]] = row["output"]
 
+# Genero una lista de palabras claves de sectores obtenidas con el LLM que tienen un ticker mapeado
 def get_keywords_sector(economic_channels, mapeo):
-    # Manejar NaN o None
     if not economic_channels or (isinstance(economic_channels, float)):
         return []
 
@@ -1614,7 +1568,7 @@ def get_keywords_sector(economic_channels, mapeo):
 
     return channels_validos
 
-
+# Prompt em ingles para extraer las categorias de analisis gramatical para noticias empresariales
 def extract_event_empresa(full_text, tickers_empresa, tickers_sector, economic_channels, all_names, df_keywords, mapeo):
 
     keywords_empresa = get_keywords_empresa(tickers_empresa, all_names, df_keywords) if tickers_empresa and len(tickers_empresa) > 0 else []
@@ -1626,7 +1580,6 @@ def extract_event_empresa(full_text, tickers_empresa, tickers_sector, economic_c
     participantes = "BLOCK A - Entity keywords explicitly found in the news:\n"
     participantes += "\n".join([f'- "{kw}"' for kw in keywords_empresa])
 
-    # Sector como contexto silencioso — ayuda al modelo a razonar pero no pide incluirlo en output
     contexto_sector = ""
     if keywords_sector:
         contexto_sector = f"\nECONOMIC CONTEXT (for reference only — do NOT include in output):\n"
@@ -1714,8 +1667,6 @@ Summary: <your one sentence summary here>
 [/INST]
 """
     try:
-        # Con ctransformers NO usas tokenizer() ni torch.no_grad()
-        # Simplemente llamas a 'llm' pasándole el prompt directamente
         response = llm(  #llm
             prompt,
             max_new_tokens=400,
@@ -1725,7 +1676,6 @@ Summary: <your one sentence summary here>
 
         response = response.strip()
 
-        # Extraer JSON de la respuesta de texto
         matches = re.findall(r'\{[^{}]*\}', response, re.DOTALL)
         if not matches:
             return []
@@ -1736,9 +1686,8 @@ Summary: <your one sentence summary here>
         print(f"Error en la generación o parseo: {e}")
         return []
 
-
+# Trasnformo a minuscula
 def normalize_to_list(x):
-
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return []
 
@@ -1747,17 +1696,18 @@ def normalize_to_list(x):
 
     return [str(x).strip().lower()]
 
+# Estandarizacion
 def clean_text(x):
     if x is None:
         return None
     return str(x).strip().lower()
 
+# Transformo el ouput del prompt a df
 def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
 
     filas = []
     append = filas.append
 
-    # caso 1: resultado vacío
     if not resultado:
         append((
             indice_noticia,
@@ -1778,7 +1728,6 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
             ]
         )
 
-    # caso normal (guardar TODO)
     for i, event in enumerate(resultado, 1):
 
         agent = normalize_to_list(event.get("agent_keywords"))
@@ -1809,7 +1758,7 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
         ]
     )
 
-
+# Orquesto las funciones anteriores, desde pasarlo por el prompt hasta obtener un df con los resultados estructurados
 def procesar_noticias_completo(noticias):
     """
     Procesa todas las noticias y devuelve un DataFrame con los eventos.
@@ -1819,13 +1768,11 @@ def procesar_noticias_completo(noticias):
     all_dfs = []
     tiempos = []
 
-    print(f"Iniciando procesamiento de {len(noticias)} noticias...")
-
     for i in noticias.index:
         fila = noticias.loc[i]
         t0 = time.time()
 
-        # 1. Extracción con el modelo LLM (ya adaptado para CPU)
+        # Aplico el LLM para el analisis gramatical
         resultado = extract_event_empresa(
             full_text=fila['Full Text'],
             tickers_empresa=fila['Tickers Empresa'],
@@ -1837,14 +1784,14 @@ def procesar_noticias_completo(noticias):
             mapeo=mapeo
         )
 
-        # 2. Obtención de keywords para validación
+        # Obtengo las keywords con tickers mapeados
         keywords_filtradas = get_keywords_empresa(
             tickers_noticia=fila['Tickers Empresa'],
             all_names_noticia=fila['All Names'],
             df_keywords=NER_mapeado
         )
 
-        # 3. Conversión a DataFrame
+        # Convierto a df
         df_eventos = eventos_a_df_fast(
             resultado=resultado,
             indice_noticia=i,
@@ -1853,14 +1800,14 @@ def procesar_noticias_completo(noticias):
 
         all_dfs.append(df_eventos)
 
-        # Tracking de tiempo
+        # Registo del tiempo de ejecucion
         duracion = time.time() - t0
         tiempos.append(duracion)
 
-        if (len(tiempos) % 5 == 0): # Feedback cada 5 noticias
+        if (len(tiempos) % 5 == 0):
             print(f"Procesadas {len(tiempos)}/{len(noticias)} - Última: {duracion:.2f}s")
 
-    # Unificar todos los resultados en un solo DataFrame
+    # Unifico todos los resultados en un solo df
     if all_dfs:
         df_final = pd.concat(all_dfs, ignore_index=True)
     else:
@@ -1868,43 +1815,40 @@ def procesar_noticias_completo(noticias):
 
     fin_total = time.time()
 
-    print("\n=== PROCESO FINALIZADO ===")
+    # Dado el tiempo dilato del procesamiento, registro los tiempos
     print(f"Noticias totales: {len(noticias)}")
     print(f"Tiempo total: {(fin_total - inicio_total)/60:.2f} min")
     print(f"Tiempo medio por noticia: {np.mean(tiempos):.2f} s")
 
     return df_final
 
-
+# Selecciono solo noticias empresariales
 mask = noticias_input_filtrado['Tickers Empresa'].apply(lambda x: len(x) > 0)
 noticias_con_empresas = noticias_input_filtrado[mask].copy()
 
+# Si hay dichas noticias, ejecuto el analisis gramatical
 if not noticias_con_empresas.empty:
-    print(f"Iniciando proceso para {len(noticias_con_empresas)} noticias...")
-    # Reiniciamos índice solo si vamos a procesar
-    # noticias_con_empresas = noticias_con_empresas.reset_index(drop=True)
+    print(f"Iniciando proceso para {len(noticias_con_empresas)} noticias")
     resultado_empresa = procesar_noticias_completo(noticias_con_empresas)
 else:
-    print("No se encontraron noticias con empresas. Devolviendo DataFrame vacío.")
-    # Creamos un DataFrame vacío con las columnas que esperas de eventos_a_df_fast
+    print("No se encontraron noticias con empresas. Devuelvo un df vacio")
+    # Creamos un df vacio
     resultado_empresa = pd.DataFrame(columns=[
         "Fila Noticia", "Evento", "Keywords Validas", "Agente", "Paciente",
         "Afectado", "Verbo", "Contexto", "Status"
     ])
     
-    
+ 
+# Prompt em ingles para extraer las categorias de analisis gramatical para noticias sectoriales   
 def extract_event_sector(full_text, tickers_sector, economic_channels, mapeo):
-    # 1. Obtener keywords del sector (asumo que esta función ya la tienes definida)
     keywords_sector = get_keywords_sector(economic_channels, mapeo) if economic_channels and not isinstance(economic_channels, float) else []
 
     if not keywords_sector:
         return []
 
-    # 2. Preparar los participantes para el prompt
     participantes = "SECTOR KEYWORDS (economic sectors identified as relevant to this news):\n"
     participantes += "\n".join([f'- "{kw}"' for kw in keywords_sector])
 
-    # 3. Construir el Prompt (usando el formato de Mistral)
     prompt = f"""<s>[INST]
 You are a specialized financial news analyst.
 The news below follows this structure:
@@ -1977,30 +1921,25 @@ Summary: <your one sentence summary here>
 ]
 [/INST]"""
 
-    # 4. INFERENCIA CON CTRANSFORMERS (CPU)
-    # model.generate no se usa aquí, se llama al objeto directamente
     response = llm(
         prompt,
         max_new_tokens=300,
-        temperature=0, # Equivalente a do_sample=False para extraer datos
+        temperature=0, 
         stop=["</s>"]
     )
 
-    # 5. EXTRACCIÓN DE JSON
     try:
-        # Buscamos el contenido entre corchetes o llaves
         matches = re.findall(r'\{[^{}]*\}', response, re.DOTALL)
         if not matches:
             return []
 
-        # Limpiamos posibles errores de formato y cargamos
         result = [json.loads(m.replace("'", '"')) for m in matches]
         return result
     except Exception as e:
         print(f"Error parseando JSON: {e}")
         return []
 
-
+# Transformo a minuscula
 def normalize_to_list(x):
 
     if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -2011,11 +1950,13 @@ def normalize_to_list(x):
 
     return [str(x).strip().lower()]
 
+# Estandarizacion
 def clean_text(x):
     if x is None:
         return None
     return str(x).strip().lower()
 
+# Transformo el ouput del prompt a df
 def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
 
     kw_set = set(kw.lower() for kw in keywords_validas)
@@ -2023,12 +1964,11 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
     filas = []
     append = filas.append
 
-    # caso 1: resultado vacío → guardar fila placeholder
     if not resultado:
         append((
             indice_noticia,
             1,
-            keywords_validas,  # ← nueva columna
+            keywords_validas,  
             [],
             [],
             [],
@@ -2045,7 +1985,6 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
             ]
         )
 
-    # caso normal (guardar TODO, aunque no haya keywords)
     for i, event in enumerate(resultado, 1):
 
         agent = normalize_to_list(event.get("agent"))
@@ -2063,7 +2002,7 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
         append((
             indice_noticia,
             i,
-            keywords_validas,  # ← nueva columna
+            keywords_validas,  
             agent_f,
             patient_f,
             affected_f,
@@ -2081,33 +2020,31 @@ def eventos_a_df_fast(resultado, indice_noticia, keywords_validas):
     )
 
 
-
+# Orquesto las funciones anteriores, desde pasarlo por el prompt hasta obtener un df con los resultados estructurados
 def procesar_noticias(noticias, mapeo):
     inicio_total = time.time()
     todos_los_dfs = []
     tiempos = []
 
-    print(f"Iniciando procesamiento de {len(noticias)} noticias...")
-
     for i in noticias.index:
         fila = noticias.loc[i]
         t0 = time.time()
 
-        # 1. Extraer eventos con el modelo (CPU)
+        # Aplico el LLM para el analisis gramatical
         resultado = extract_event_sector(
-            full_text         = fila['Full Text'],# Apareci Text Clean
+            full_text         = fila['Full Text'],
             tickers_sector    = fila['Tickers Sector'],
             economic_channels = fila['Economic Channels'],
             mapeo             = mapeo
         )
 
-        # 2. Obtener keywords validadas
+        # Obtengo keywords con tickers mapeados
         keywords_filtradas = get_keywords_sector(
             economic_channels = fila['Economic Channels'],
             mapeo = mapeo
         )
 
-        # 3. Convertir a DataFrame
+        # Convierto a df
         df_eventos = eventos_a_df_fast(
             resultado=resultado,
             indice_noticia=fila.name,
@@ -2117,100 +2054,102 @@ def procesar_noticias(noticias, mapeo):
         todos_los_dfs.append(df_eventos)
         tiempos.append(time.time() - t0)
 
-        # Feedback visual cada 10 noticias para monitorear el progreso en CPU
         if (len(todos_los_dfs) % 10) == 0:
-            print(f"Procesadas {len(todos_los_dfs)}/{len(noticias)} noticias...")
+            print(f"Procesadas {len(todos_los_dfs)}/{len(noticias)} noticias")
 
-    # Consolidar todo en un solo DataFrame
+    # Consolido todo en un df
     df_final = pd.concat(todos_los_dfs, ignore_index=True)
 
     fin_total = time.time()
 
+    # Dado el tiempo dilato del procesamiento, registro los tiempos
+    print(f"Noticias totales: {len(noticias)}")
     print(f"Tiempo total: {(fin_total - inicio_total)/60:.2f} min")
     print(f"Tiempo medio por noticia: {np.mean(tiempos):.2f} s")
 
     return df_final
 
-# 1. Aplicamos el filtro para encontrar noticias con Tickers Sector (Arrays)
+# Selecciono solo noticias sectoriales
 mask = noticias_input_filtrado['Tickers Sector'].apply(lambda x: len(x) > 0)
 noticias_con_sectores = noticias_input_filtrado[mask].copy()
 
-# 2. Condición: Si hay filas, procesamos. Si no, devolvemos vacío.
-if not noticias_input_filtrado.empty:
-    print(f"Iniciando proceso para {len(noticias_input_filtrado)} noticias...")
-    # Reiniciamos índice solo si vamos a procesar
-    # noticias_input_filtrado = noticias_input_filtrado.reset_index(drop=True)
-    resultado_sector = procesar_noticias(noticias_input_filtrado, mapeo)
+# Si hay dichas noticias, ejecuto el analisis gramatical
+if not noticias_con_sectores.empty:
+    print(f"Iniciando proceso para {len(noticias_con_sectores)} noticias")
+    resultado_sector = procesar_noticias(noticias_con_sectores, mapeo)
+    
 else:
-    print("No se encontraron noticias con sectores. Devolviendo DataFrame vacío.")
-    # Creamos un DataFrame vacío con las columnas que esperas de eventos_a_df_fast
+    print("No se encontraron noticias con sectores. Devuelvo un df vacio.")
+    # Creo un df vacio
     resultado_sector = pd.DataFrame(columns=[
         "Fila Noticia", "Evento", "Keywords Validas", "Agente", "Paciente",
         "Afectado", "Verbo", "Contexto", "Status"
     ])
     
+
+# Limpieza de los resultados del analisis gramatical
+# Empiezo con los roles de noticias empresariales   
 ner  = resultado_empresa.copy()
+# Me cargo los NaN
 ner = ner.dropna()
 
-
+# Reviso si hay roles repetidos
 def es_repetida(row):
-    # Aseguramos que keywords sea una lista
     keywords = list(row['Keywords Validas']) if isinstance(row['Keywords Validas'], (list, np.ndarray)) else []
 
-    # Combinamos las 3 columnas asegurando que cada una sea tratada como lista
     agente = list(row['Agente']) if isinstance(row['Agente'], (list, np.ndarray)) else []
     paciente = list(row['Paciente']) if isinstance(row['Paciente'], (list, np.ndarray)) else []
     afectado = list(row['Afectado']) if isinstance(row['Afectado'], (list, np.ndarray)) else []
 
     pool_palabras = agente + paciente + afectado
 
-    # Contamos las ocurrencias
     for kw in keywords:
         if pool_palabras.count(kw) > 1:
             return True
     return False
 
-# Verificación de seguridad antes de procesar
+# Reviso si hay repeticion, si hay noticias empresariales sin NaN
 if not ner.empty:
     repetidos_empresa = ner[ner.apply(es_repetida, axis=1)]
 else:
-    # Si ner está vacío, creamos un df vacío con las mismas columnas
+    # Devuelvo un df vacio
     repetidos_empresa = pd.DataFrame(columns=ner.columns)
 
-# Solo ejecutamos la limpieza si el DataFrame 'repetidos' tiene contenido
+# Ejecuto la limpieza si hay repetidos
 if not repetidos_empresa.empty:
-    print(f"Limpiando {len(repetidos_empresa)} filas con duplicados...")
+    print(f"Limpiando {len(repetidos_empresa)} filas con duplicados")
 
-    # Función para limpiar duplicados entre columnas
+    # Si hay roles en agente y otros mas, me quedo con el de agente
     def limpiar_duplicados(row):
-        # Usamos sets para una búsqueda más rápida
         agente = set(row['Agente']) if isinstance(row['Agente'], (list, np.ndarray)) else set()
 
-        # Filtramos paciente y afectado quitando lo que esté en agente
         paciente_limpio = [x for x in row['Paciente'] if x not in agente]
         afectado_limpio = [x for x in row['Afectado'] if x not in agente]
 
         return pd.Series([paciente_limpio, afectado_limpio])
 
-    # Aplicamos la limpieza solo a las columnas necesarias
+    # Aplicamos la limpieza
     ner[['Paciente', 'Afectado']] = ner.apply(limpiar_duplicados, axis=1)
 else:
     print("No se detectaron repetidos. Saltando limpieza.")
 
-# añadir nueva columna
+# Añado un diferencial que es una noticia empresarial, guarandolo como True
 ner["Mencionado"] = True
 
+
+# Continuo con la limpieza de roles de las noticias sectoriales
 sector  = resultado_sector.copy()
+# Me cargo los NaN
 sector = sector.dropna()
 
-# Verificación de seguridad antes de procesar
+# Si hay noticias sin NaN, verifico si tengo roles repetidos
 if not ner.empty:
     repetidos_sector = sector[sector.apply(es_repetida, axis=1)]
 else:
-    # Si ner está vacío, creamos un df vacío con las mismas columnas
+    # Genero df vacio
     repetidos_sector = pd.DataFrame(columns=sector.columns)
 
-
+# Me cargo el rol afectado si aparece tambien en otro rol
 def limpiar_afectado(row):
     agente = set(row["Agente"])
     paciente = set(row["Paciente"])
@@ -2224,29 +2163,34 @@ def limpiar_afectado(row):
 
     return row
 
-# Aplicamos al DataFrame
+# Aplico la funcion anterior
 sector = sector.apply(limpiar_afectado, axis=1)
 
+# Si hay roles en agente y paciente, me quedo con agente
 def limpiar_agente_paciente(row):
     agente_set = set(row["Agente"])
     paciente_set = set(row["Paciente"])
 
-    # solo duplicados entre agente y paciente
     overlap = agente_set.intersection(paciente_set)
 
     if overlap:
         row["Paciente"] = [x for x in row["Paciente"] if x not in overlap]
 
     return row
+
+# Aplico la funcion anterior
 sector = sector.apply(limpiar_agente_paciente, axis=1)
 
-# añadir nueva columna
+# Añado un diferencial que es una noticia sectorial, guarandolo como False
 sector["Mencionado"] = False
 
+# Uno en un solo df las noticias empresariales y sectoriales
 inputs_totales = pd.concat([ner, sector], ignore_index=True)
 
+# Organizo por Fila Noticas y dentro de ella por evento
 inputs_totales = inputs_totales.sort_values(by=["Fila Noticia", "Evento"]).reset_index(drop=True)
 
+# Genero una fila por palabra clave o keyword
 rows = []
 
 for _, r in inputs_totales.iterrows():
@@ -2255,14 +2199,13 @@ for _, r in inputs_totales.iterrows():
     for rol in ["Agente", "Paciente", "Afectado"]:
         keywords = r[rol]
 
-        # Verificamos si es lista o un array de numpy
         if isinstance(keywords, (list, np.ndarray)):
             for kw in keywords:
                 rows.append({
                     "Fila Noticia": fila,
                     "Evento": r["Evento"],
                     "Rol": rol.lower(),
-                    "Keyword": str(kw).lower(), # Aseguramos que sea string antes de lower()
+                    "Keyword": str(kw).lower(), 
                     "Verbo": r["Verbo"],
                     "Contexto": r["Contexto"],
                     "Status": r["Status"],
@@ -2271,13 +2214,12 @@ for _, r in inputs_totales.iterrows():
 
 inputs_totales_por_rol = pd.DataFrame(rows)
 
+# Obtengo los tickers de las palabras claves
 def get_tickers(row):
     keyword = row["Keyword"]
     fila = row["Fila Noticia"]
 
-    # =========================
-    # CASO 1: MENCIONADO TRUE
-    # =========================
+    # Noticias empresariales
     if row["Mencionado"]:
         ner_dict = NER_mapeado.set_index("original")["mapped_fuzzy"].to_dict()
         tickers_ner = ner_dict.get(keyword, [])
@@ -2291,9 +2233,7 @@ def get_tickers(row):
 
         return list(set(tickers_ner) & set(tickers_news))
 
-    # =========================
-    # CASO 2: MENCIONADO FALSE
-    # =========================
+    # Noticias sectoriales
     else:
         sector = mapeo.get(keyword)
 
@@ -2304,7 +2244,6 @@ def get_tickers(row):
         dict_group = empresas_sectores_morningstar.groupby('Industry Group')['Ticker'].apply(list).to_dict()
         dict_industry = empresas_sectores_morningstar.groupby('Industry')['Ticker'].apply(list).to_dict()
 
-        # 2. Unirlos todos en un único diccionario de mapeo
         empresa_por_morningstar = {**dict_sector, **dict_group, **dict_industry}
 
         tickers_sector = empresa_por_morningstar.get(sector, [])
@@ -2315,51 +2254,46 @@ def get_tickers(row):
         else:
             tickers_sector = []
 
-        # Lo mismo para tickers_news
         if isinstance(tickers_news, (list, np.ndarray)):
             tickers_news = list(tickers_news)
         else:
             tickers_news = []
 
-        # Ahora el set() no fallará
         return list(set(tickers_sector) & set(tickers_news))
 
+# Si hay filas con palabras claves, entonces continuo el proceso de generacion de inputs
 if not inputs_totales_por_rol.empty:
     
+    # Aplico la busqueda de tickers
     inputs_totales_por_rol["Tickers Mapeados"] = inputs_totales_por_rol.apply(get_tickers, axis=1)
 
-    # Verifico que no haya listas vacias y me quedo con las que si tienen elementos
+    # Me guardo solo palabras claves con tickers
     inputs_totales_por_rol = inputs_totales_por_rol[
         inputs_totales_por_rol["Tickers Mapeados"].map(lambda x: len(x) > 0 if isinstance(x, list) else False)
     ]
 
     inputs_totales_por_rol = inputs_totales_por_rol.reset_index(drop=True)
 
+    # Limipieza de estatus
+    # Normalizo estatus
     def normalize_text(text):
         if pd.isna(text):
             return text
 
-        # minúsculas
         text = text.lower()
-
-        # reemplazar underscores
         text = text.replace("_", " ")
-
-        # quitar acentos / caracteres raros
         text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8")
-
-        # quitar espacios extra
         text = re.sub(r"\s+", " ", text).strip()
 
         return text
 
+    # Limpio el estatus
     def clean_status(text):
         text = normalize_text(text)
 
         if text is None:
             return text
 
-        # reglas
         if "speculative" in text:
             return "speculative"
 
@@ -2376,20 +2310,26 @@ if not inputs_totales_por_rol.empty:
 
         return text
 
+    # Limpio estatus, porque el prompt alucino un poco
     inputs_totales_por_rol["Status"] = inputs_totales_por_rol["Status"].apply(clean_status)
 
+    # Limpieza de verbos
+    # Me quedo con los verbos problematicos: NaN o mas de un verbo
     mask_error = (
-        ~inputs_totales_por_rol["Verbo"].apply(lambda x: isinstance(x, str))  # no es string
+        ~inputs_totales_por_rol["Verbo"].apply(lambda x: isinstance(x, str)) 
         |
-        inputs_totales_por_rol["Verbo"].astype(str).str.contains(",")        # tiene coma
+        inputs_totales_por_rol["Verbo"].astype(str).str.contains(",")        
     )
 
     df_verbos_problematicos = inputs_totales_por_rol[mask_error]
 
+    # Si hay mas de un verbo, me quedo con el primero, suele ser mas preciso
     inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo"].apply(
         lambda x: x.split(",")[0].strip() if isinstance(x, str) else x
     )
 
+    # En caso de noticias y evento iguale para noticias empr. y sect., me quedo 
+    # con el verbo, contexto y estatus de la noticia empresarial, suele ser mas preciso
     true_values = (
         inputs_totales_por_rol[inputs_totales_por_rol["Mencionado"] == True]
         .groupby(["Fila Noticia", "Evento"])
@@ -2412,16 +2352,18 @@ if not inputs_totales_por_rol.empty:
         how="left"
     )
 
+    # Reemplazo los verbos, contextos y estatus de las noticias empresariales sobre las sectoriales para misma noticia y evento
+    # Verbos
     inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol.apply(
         lambda x: x["Verbo_true"] if pd.notna(x["Verbo_true"]) else x["Verbo"],
         axis=1
     )
-
+    # Contexto
     inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol.apply(
         lambda x: x["Contexto_true"] if pd.notna(x["Contexto_true"]) else x["Contexto"],
         axis=1
     )
-
+    # Estatus
     inputs_totales_por_rol["Status"] = inputs_totales_por_rol.apply(
         lambda x: x["Status_true"] if pd.notna(x["Status_true"]) else x["Status"],
         axis=1
@@ -2430,6 +2372,8 @@ if not inputs_totales_por_rol.empty:
     inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_true", "Contexto_true", "Status_true"])
 
 
+    # Normalizacion de verbos
+    # Normalizo con un prompt en ingles de LLM
     def extract_main_verbs_batch(phrases, client):
 
         if isinstance(phrases, str):
@@ -2485,21 +2429,24 @@ if not inputs_totales_por_rol.empty:
     verbs = list(verbs)
     len(list(verbs))
 
-    api_keys = ["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", "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"]  # puedes añadir más
+    api_keys = ["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", "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"]  
     clients = [Groq(api_key=k) for k in api_keys]
 
+    # Divido la lista de verbos
     def split_list(lst, n):
         k, m = divmod(len(lst), n)
         return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
     verb_parts = split_list(verbs, len(clients))
 
+    # Divido en partes de tamaño 50
     def chunk_list(lst, size=50):
         for i in range(0, len(lst), size):
             yield lst[i:i + size]
 
     all_results = []
 
+    # Aplico el prompt en partes, porque tiene limite mi LLM
     for idx, (client, verb_subset) in enumerate(zip(clients, verb_parts)):
         print(f"\n Procesando parte {idx+1} con API key {idx+1}")
 
@@ -2515,21 +2462,22 @@ if not inputs_totales_por_rol.empty:
             except Exception as e:
                 print(f"Error en parte {idx+1}, batch {i}: {e}")
                 continue
-
+    
+    # Guardo un df los resultado encontrados
     verbos_procesados = pd.DataFrame(all_results)
-
     verbos_procesados = verbos_procesados.rename(columns={
         "text": "Verbo",
         "verb": "Verbo_Limpio"
     })
 
+    # Uno los verbos normalizados al df principal
     inputs_totales_por_rol = inputs_totales_por_rol.merge(
         verbos_procesados,
         on="Verbo",
         how="left"
     )
-    inputs_totales_por_rol
 
+    # Me quedo con verbos normalizados que dieron NaN
     verbs_missing = (
         inputs_totales_por_rol[
             inputs_totales_por_rol["Verbo_Limpio"].isna()
@@ -2542,9 +2490,10 @@ if not inputs_totales_por_rol.empty:
 
     verbs_missing = list(verbs_missing)
 
+    # Vuelvo pasar por LLM estos verbos mal procesados
     missing_results = []
     client = Groq(api_key="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")
-    # batches pequeños = más fiable
+
     def chunk_list(lst, size=50):
         for i in range(0, len(lst), size):
             yield lst[i:i + size]
@@ -2553,7 +2502,6 @@ if not inputs_totales_por_rol.empty:
         try:
             results = extract_main_verbs_batch(chunk, client)
 
-            # IMPORTANTE: mapear por texto
             mapping = {r["text"]: r["verb"] for r in results}
 
             for v in chunk:
@@ -2565,43 +2513,15 @@ if not inputs_totales_por_rol.empty:
         except Exception as e:
             print(f"Error en batch: {e}")
 
-
+    # Me guardo los resultados de los verbos erroneos
     verbos_no_procesados = pd.DataFrame(missing_results)
 
-    # Verificación de seguridad: ¿Existe el DataFrame y tiene filas?
-    if not verbos_no_procesados.empty:
-        # 1. Identificar filas donde Verbo_Limpio es NaN
-        mask = verbos_no_procesados['Verbo_Limpio'].isna()
-        verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
-
-        # Solo ejecutamos si realmente hay verbos pendientes (verbo_sucio no está vacía)
-        if verbo_sucio:
-            # 2. Obtener resultados del modelo
-            resultados = extract_main_verbs_batch(verbo_sucio, client)
-
-            # 3. Extraer solo los verbos limpios
-            verbos_ordenados = [item['verb'] for item in resultados]
-
-            # 4. Asignar directamente a las filas filtradas
-            verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
-
-            print(f"Actualización completada: {len(verbos_ordenados)} verbos procesados.")
-        else:
-            print("No hay filas con Verbo_Limpio pendiente (NaN).")
-    else:
-        print("El DataFrame 'verbos_no_procesados' está vacío. Saltando paso.")
-
-
-    # Aseguramos que si está vacío, al menos tenga las columnas necesarias para el join
-    columnas_requeridas = ['Verbo', 'Verbo_Limpio']
-
+    # Si no hay verbos erroneos, devuelvo df vacio
     if verbos_no_procesados.empty:
-        # Si está vacío, nos aseguramos de que tenga las columnas para que set_index('Verbo') no falle
-        for col in columnas_requeridas:
-            if col not in verbos_no_procesados.columns:
-                verbos_no_procesados[col] = None
+        verbos_no_procesados = pd.DataFrame([{'Verbo': None, 'Verbo_Limpio': None}])
+        print("El DataFrame 'verbos_no_procesados' está vacío. Columnas inicializadas.")
     else:
-        # ... aquí va el bloque de código de procesamiento con el 'if verbo_sucio' que vimos antes ...
+        # Si hay verbos erroneos, vuelvo a usar un LLM
         mask = verbos_no_procesados['Verbo_Limpio'].isna()
         verbo_sucio = verbos_no_procesados.loc[mask, 'Verbo'].tolist()
 
@@ -2609,15 +2529,20 @@ if not inputs_totales_por_rol.empty:
             resultados = extract_main_verbs_batch(verbo_sucio, client)
             verbos_ordenados = [item['verb'] for item in resultados]
             verbos_no_procesados.loc[mask, 'Verbo_Limpio'] = verbos_ordenados
+            print(f"Actualización completada: {len(verbos_ordenados)} verbos procesados")
+        else:
+            print("No hay filas con Verbo_Limpio pendiente")
 
-    # Ahora este bloque SIEMPRE funcionará sin errores de "KeyError: 'Verbo'"
+
+    # Fuciono los verbos correctos 
     df1 = verbos_procesados.set_index('Verbo')
     df2 = verbos_no_procesados.set_index('Verbo')
-
     verbos_procesados_finales = df1.combine_first(df2).reset_index()
-
+    
+    # Elimino la columna transitoria
     inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
 
+    # Reemplazo los verbos brutos por los normalizados
     inputs_totales_por_rol = inputs_totales_por_rol.merge(
         verbos_procesados_finales,
         on="Verbo",
@@ -2626,7 +2551,10 @@ if not inputs_totales_por_rol.empty:
 
     inputs_totales_por_rol["Verbo"] = inputs_totales_por_rol["Verbo_Limpio"]
     inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Verbo_Limpio"])
-
+    
+    
+    # Normalizacion de contexto
+    # Normalizo con un prompt en ingles de LLM
     def extract_main_context_batch(phrases, client):
 
         if isinstance(phrases, str):
@@ -2700,17 +2628,20 @@ if not inputs_totales_por_rol.empty:
     )
 
     contexts = list(contexts)
-
+    
+    # Divido la lista de contextos
     def split_list(lst, n):
         k, m = divmod(len(lst), n)
         return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
     context_parts = split_list(contexts, len(clients))
 
+    # Divido en partes tamaño 50
     def chunk_list(lst, size=50):
         for i in range(0, len(lst), size):
             yield lst[i:i + size]
 
+    # Aplico el prompt en partes, porque tiene limite mi LLM
     all_results = []
 
     for idx, (client, context_subset) in enumerate(zip(clients, context_parts)):
@@ -2728,20 +2659,22 @@ if not inputs_totales_por_rol.empty:
             except Exception as e:
                 print(f"Error en parte {idx+1}, batch {i}: {e}")
                 continue
-
+    
+    # Guardo un df los resultado encontrados
     contextos_procesados = pd.DataFrame(all_results)
-
     contextos_procesados = contextos_procesados.rename(columns={
         "text": "Contexto",
         "context": "Contexto_Limpio"
     })
 
+    # Uno los contextos normalizados al df principal
     inputs_totales_por_rol = inputs_totales_por_rol.merge(
         contextos_procesados,
         on="Contexto",
         how="left"
     )
 
+    # Me quedo con contextos normalizados que dieron NaN
     contexts_missing = (
         inputs_totales_por_rol[
             inputs_totales_por_rol["Contexto_Limpio"].isna()
@@ -2754,9 +2687,10 @@ if not inputs_totales_por_rol.empty:
 
     contexts_missing = list(contexts_missing)
 
+    # Vuelvo pasar por LLM estos contextos mal procesados
     missing_results = []
     client = Groq(api_key="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")
-    # batches pequeños = más fiable
+
     def chunk_list(lst, size=50):
         for i in range(0, len(lst), size):
             yield lst[i:i + size]
@@ -2777,48 +2711,35 @@ if not inputs_totales_por_rol.empty:
         except Exception as e:
             print(f"Error en batch: {e}")
 
+    # Me guardo los resultados de los contextos erroneos
     contextos_no_procesados = pd.DataFrame(missing_results)
 
-    # Aseguramos que existan las columnas mínimas para que el flujo no se rompa
-    for col in ['Contexto', 'Contexto_Limpio']:
-        if col not in contextos_no_procesados.columns:
-            contextos_no_procesados[col] = None
-
-    if not contextos_no_procesados.empty:
-        # 1. Identificar filas con Contexto_Limpio pendiente
+    # Si no hay contextos erroneos, devuelvo df vacio
+    if contextos_no_procesados.empty:
+        contextos_no_procesados = pd.DataFrame([{'Contexto': None, 'Contexto_Limpio': None}])
+        print("El DataFrame 'contextos_no_procesados' está vacio. Columnas inicializadas.")
+    else:
+        # Si hay contextos erroneos, vuelvo a usar un LLM
         mask = contextos_no_procesados['Contexto_Limpio'].isna()
         contexto_sucio = contextos_no_procesados.loc[mask, 'Contexto'].tolist()
 
         if contexto_sucio:
-            # 2. Obtener resultados (Llamada al batch de contexto)
             resultados = extract_main_context_batch(contexto_sucio, client)
-
-            # 3. Extraer solo los contextos limpios manteniendo el orden
             contextos_ordenados = [item['context'] for item in resultados]
-
-            # 4. Asignar directamente
             contextos_no_procesados.loc[mask, 'Contexto_Limpio'] = contextos_ordenados
             print(f"Actualización completada: {len(contextos_ordenados)} contextos procesados.")
         else:
-            print("No hay contextos pendientes de limpiar.")
-    else:
-        print("El DataFrame de contextos está vacío.")
+            print("No hay filas con Contexto_Limpio pendiente")
 
-    # --- PARTE 2: Unión de DataFrames (Merge/Combine) ---
-
-    # Aseguramos que el DF de procesados también tenga la columna índice
-    if 'Contexto' not in contextos_procesados.columns:
-        contextos_procesados['Contexto'] = None
-
-    # 1. Seteamos índices para la combinación
+    # Fuciono los contextos correctos 
     df1 = contextos_procesados.set_index('Contexto')
     df2 = contextos_no_procesados.set_index('Contexto')
-
-    # 2. Combinamos: rellena los huecos de df1 con la info nueva de df2
     contextos_procesados_finales = df1.combine_first(df2).reset_index()
 
+    # Elimino la columna transitoria
     inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
 
+    # Reemplazo los contextos brutos por los normalizados
     inputs_totales_por_rol = inputs_totales_por_rol.merge(
         contextos_procesados_finales,
         on="Contexto",
@@ -2828,15 +2749,19 @@ if not inputs_totales_por_rol.empty:
     inputs_totales_por_rol["Contexto"] = inputs_totales_por_rol["Contexto_Limpio"]
     inputs_totales_por_rol = inputs_totales_por_rol.drop(columns=["Contexto_Limpio"])
 
+
+    # Transformo el df a una fila por ticker
     df_tickers = inputs_totales_por_rol.explode("Tickers Mapeados").copy()
 
-    # quitar tickers nulos
+    # Quito los ticker nulos
     df_tickers = df_tickers[df_tickers["Tickers Mapeados"].notna()]
 
+    # Obtengo el maximo de eventos por noticias
     max_eventos = df_tickers.groupby("Fila Noticia")["Evento"].max()
 
+    # Si dentro de un evento, hay 2 tickers, se da prioridad al ticker mapeado de la noticia empresarial
+    # porque suele ser mas preciso
     def resolver_grupo(g):
-        #  regla clave: si hay algún True → quedarse solo con esos
         if g["Mencionado"].any():
             g = g[g["Mencionado"] == True]
 
@@ -2851,7 +2776,7 @@ if not inputs_totales_por_rol.empty:
             "Mencionado": g["Mencionado"].any()
         })
 
-    # Esto tarda un poco
+    # Aplico la eliminacion de tickers repetidos por evento
     inputs_gramatical = (
         df_tickers
         .groupby(["Fila Noticia", "Evento", "Tickers Mapeados"])
@@ -2859,44 +2784,44 @@ if not inputs_totales_por_rol.empty:
         .reset_index()
     )
 
-    # me cargo la columna Evento, porque ya tengo Eventos
+    # Me cargo la columna Evento, porque ya tengo maximo eventos
     inputs_gramatical = inputs_gramatical.drop(columns=['Evento'])
 
-    # 1. Donde Mencionado sea False, ponemos False en Agente, Paciente y Afectado
-    # Usamos .loc[filas, columnas] para modificar solo donde se cumple la condición
+    # Donde Mencionado igual False, pongo False en Agente, Paciente y Afectado. No hago analisi de roles para noticias sectoriales
     inputs_gramatical.loc[inputs_gramatical["Mencionado"] == False, ["Agente", "Paciente", "Afectado"]] = False
 
-    # 2. Eliminamos la columna Mencionado
+    # Elimino la columna Mencionado
     inputs_gramatical = inputs_gramatical.drop(columns=["Mencionado"])
 
-
+    # De mi columna con toda la noticia unida, extraigo solo el titular y contenido
     def extraer_noticia(text):
         if pd.isna(text) or not isinstance(text, str):
             return None, None
 
-        # Extracción de Título
+        # Extraigo el titulo
         titulo_match = re.search(r"\[TITLE\]\s*(.*?)(?=\s*\[|$)", text, re.DOTALL)
         titulo = titulo_match.group(1).strip() if titulo_match else None
 
-        # Extracción de Contenido
+        # Extraigo el contenido
         contenido_match = re.search(r"\[CONTENT\]\s*(.*)", text, re.DOTALL)
 
         if contenido_match:
             contenido = contenido_match.group(1).strip()
         else:
-            # Si no hay contenido, repetimos el título
+            # Si no hay contenido, repito el titulo
             contenido = titulo
 
         return titulo, contenido
 
-    # Aplicamos y desempaquetamos
+    # Aplico y desempaqueto la extraccion de titulo y contenido
     resultados = noticias_input_filtrado['Full Text'].apply(extraer_noticia)
     titulos, contenidos = zip(*resultados)
 
-    # Insertamos en las posiciones 3 y 4 (índices 2 y 3)
+    # Las inserto en las posiciones 3 y 4 del df
     noticias_input_filtrado.insert(2, "Titulo Noticia", titulos)
     noticias_input_filtrado.insert(3, "Contenido Noticia", contenidos)
 
+    # Obtengo y etiqueto en 5 posibles valores la hora de publicacion. Al final no lo uso
     def get_time_bucket(dt):
         h = dt.hour
         m = dt.minute
@@ -2912,54 +2837,57 @@ if not inputs_totales_por_rol.empty:
         elif 14*60 <= total_minutes <= 16*60:
             return "tarde"
         else:
-            return "extra oficial"  # por seguridad
+            return "extra oficial"  
 
-    # Asegurar datetime
+    # Aseguro el formato datetime de Date
     noticias_input_filtrado["Date"] = pd.to_datetime(noticias_input_filtrado["Date"])
 
+    # Extraigo el dia de la semana de la publicacion de la noticia
     day_col = noticias_input_filtrado["Date"].dt.day_name()
+    # Extraigo la etiqueta de hora de la publicacion de la noticia
     time_bucket_col = noticias_input_filtrado["Date"].apply(get_time_bucket)
 
-    # Eliminar si existen
+    # Elimino Week Date y Date Time si existen
     for col in ["Week Day", "Date Time"]:
         if col in noticias_input_filtrado.columns:
             noticias_input_filtrado.drop(columns=[col], inplace=True)
 
-    # Insertar
+    # Inserto el dia de la semana y la hora etiquetada en df de noticias
     noticias_input_filtrado.insert(1, "Week Day", day_col)
     noticias_input_filtrado.insert(2, "Date Time", time_bucket_col)
 
+    # Inserto ordenadamente las columnas de fecha, dia de semana, hora, titulo y contenido de notica en el df final
     date = noticias_input_filtrado["Date"]
     day_map = noticias_input_filtrado["Week Day"]
     time_map = noticias_input_filtrado["Date Time"]
     title_map = noticias_input_filtrado["Titulo Noticia"]
     content_map = noticias_input_filtrado["Contenido Noticia"]
 
+    # Fecha
     inputs_gramatical.insert(
         1,
         "Date",
         inputs_gramatical["Fila Noticia"].map(date)
     )
-
-
+    # Dia de semana
     inputs_gramatical.insert(
         2,
         "Week Day",
         inputs_gramatical["Fila Noticia"].map(day_map)
     )
-
+    # Hora
     inputs_gramatical.insert(
         3,
         "Date Time",
         inputs_gramatical["Fila Noticia"].map(time_map)
     )
-
+    # Titulo
     inputs_gramatical.insert(
         4,
         "Titulo Noticia",
         inputs_gramatical["Fila Noticia"].map(title_map)
     )
-
+    # Contenido
     inputs_gramatical.insert(
         5,
         "Contenido Noticia",
@@ -2967,7 +2895,7 @@ if not inputs_totales_por_rol.empty:
     )
 
 
-
+    # Colpaso las noticias con mas de un evento mediante: primer valor, maximo y lista
     inputs_gramatical = inputs_gramatical.groupby(["Fila Noticia", "Tickers Mapeados"]).agg({
 
         "Date": "first",
@@ -2977,40 +2905,36 @@ if not inputs_totales_por_rol.empty:
         "Contenido Noticia": "first",
         "Eventos": "max",
 
-        # booleanos → OR lógico
         "Agente": "max",
         "Paciente": "max",
         "Afectado": "max",
 
-        # Mencionado → SUMA (como definiste)
-        #"Mencionado": "sum",
-
-        # IMPORTANTE: mantener todos los valores (NO colapsar)
         "Verbo": list,
         "Contexto": list,
         "Status": list,
 
     }).reset_index()
 
-    # ordeno por fecha
+    # Ordeno por fecha y fila noticia
     inputs_gramatical['Date'] = pd.to_datetime(inputs_gramatical['Date'])
     inputs_gramatical = inputs_gramatical.sort_values(['Date', 'Fila Noticia']).reset_index(drop=True)
 
 
+    # Codificacion de inputs
+    # Codifico con booleano a los 3 roles
     boolean_cols = ["Agente", "Paciente", "Afectado"]
     boolean_data = inputs_gramatical[boolean_cols].astype(float)
 
-
+    # Codifico con one hot encoder a dia de semana y hora
     categorical_cols = ["Week Day", "Date Time"]
 
-    # Configuramos el encoder para que devuelva un DataFrame de Pandas
+    # Configuro el encoder para que devuelva un df
     encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
     encoder.set_output(transform="pandas")
 
-    # Ahora 'encoded_data' será un DataFrame con los nombres automáticos
     encoded_data = encoder.fit_transform(inputs_gramatical[categorical_cols])
 
-
+    # Codigo status con multi hot encoder, porque tengo a veces 2 status por los eventos colpasados
     status_map = {
         "speculative": 0,
         "in progress": 1,
@@ -3019,7 +2943,7 @@ if not inputs_totales_por_rol.empty:
         "confirmed negative": 4
     }
 
-
+    # Generador del multi hot enconding
     def multi_hot_status(values, n_classes=5):
         vec = np.zeros(n_classes)
         for s in values:
@@ -3028,31 +2952,28 @@ if not inputs_totales_por_rol.empty:
 
     status_array = np.stack(inputs_gramatical["Status"].apply(multi_hot_status))
 
-    # Crear el DataFrame resultante
+    # Creo el df de status resultante
     status_cols = [f"Status_{k}" for k in status_map.keys()]
     status_data = pd.DataFrame(status_array, columns=status_cols, index=inputs_gramatical.index)
 
+    # Codigo maximo eventos pasandolo a decimal, porque ya es un numero y si importa el orden
     numeric_cols = ["Eventos"]
-
     numeric_data = inputs_gramatical[numeric_cols].astype(float)
 
 
-
-    # 1. Detectar el dispositivo (GPU si está disponible)
+    # Detecto si hay GPU disponible, sino CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Usando dispositivo: {device}")
 
+    # Codifico titulo, notiica, verbo y contexto con embedding
+    # Uso Finbert para el embedding
     tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
-    # 2. Mover el modelo a la GPU
     model = AutoModel.from_pretrained("ProsusAI/finbert").to(device)
     model.eval() # Poner en modo evaluación
 
-
-    def get_embeddings(text_list, batch_size=64): # En GPU puedes subir el batch a 32 o 64
+    # Genero el embedding para titulo y noticia
+    def get_embeddings(text_list, batch_size=64): 
         embeddings_list = []
 
-        # Usamos tqdm para monitorear el tiempo real
-        # for i in tqdm(range(0, len(text_list), batch_size)):
         for i in range(0, len(text_list), batch_size):
             batch = text_list[i:i+batch_size]
 
@@ -3062,37 +2983,33 @@ if not inputs_totales_por_rol.empty:
                 truncation=True,
                 max_length=512,
                 return_tensors="pt"
-            ).to(device) # 3. Mover los inputs a la GPU
+            ).to(device) 
 
-            # 4. Usar inference_mode es más rápido que no_grad
             with torch.inference_mode():
                 outputs = model(**inputs)
 
-            # 5. Extraer el CLS y mover de vuelta a CPU para liberar memoria GPU
             cls_embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
             embeddings_list.append(cls_embeddings)
 
-            # Opcional: Liberar caché si notas lentitud
-            # torch.cuda.empty_cache()
-
         return np.vstack(embeddings_list)
 
+    # Aplico el embedding a titulos
     title_embeddings_matrix = get_embeddings(inputs_gramatical["Titulo Noticia"].tolist())
-
     title_embedding_data = pd.DataFrame(title_embeddings_matrix)
+    # Cambio los nombres porque son numeros ahora y necesito reconocer a que input hace referencia
     title_embedding_data.columns = [f'Titulo_{i}' for i in range(title_embedding_data.shape[1])]
 
+    # Aplico el embedding a contenidos
     content_embeddings_matrix = get_embeddings(inputs_gramatical["Contenido Noticia"].tolist())
-
     content_embedding_data = pd.DataFrame(content_embeddings_matrix)
+    # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
     content_embedding_data.columns = [f'Contenido_{i}' for i in range(content_embedding_data.shape[1])]
 
-
+    # Generador de emebdding para verbo y contexto
     def get_embeddings_ndarray(verbo_column, batch_size=64):
         model.to(device)
         model.eval()
 
-        # 1. Preparar datos: aplanamos todos los verbos y guardamos cuántos hay por fila
         all_verbs = []
         counts = []
 
@@ -3104,12 +3021,10 @@ if not inputs_totales_por_rol.empty:
             else:
                 lista = []
 
-            all_verbs.extend(lista if lista else [""]) # Evitamos listas vacías
+            all_verbs.extend(lista if lista else [""]) 
             counts.append(len(lista) if lista else 1)
 
-        # 2. Procesar todos los verbos en batches (usando tu lógica de GPU)
         embeddings_list = []
-        # for i in tqdm(range(0, len(all_verbs), batch_size), desc=f"Procesando verbos en {device}"):
         for i in range(0, len(all_verbs), batch_size):
 
             batch = all_verbs[i : i + batch_size]
@@ -3117,60 +3032,59 @@ if not inputs_totales_por_rol.empty:
 
             with torch.inference_mode():
                 outputs = model(**inputs)
-                # Extraemos el token CLS
                 cls_emb = outputs.last_hidden_state[:, 0, :].cpu().numpy()
                 embeddings_list.append(cls_emb)
 
         all_embeddings = np.vstack(embeddings_list)
 
-        # 3. Re-agrupar y calcular la media por cada fila original
         final_mean_embeddings = []
         current_idx = 0
+        
         for count in counts:
-            # Tomamos los embeddings que pertenecen a esta fila y sacamos la media
             row_embs = all_embeddings[current_idx : current_idx + count]
             final_mean_embeddings.append(np.mean(row_embs, axis=0))
             current_idx += count
 
         return np.vstack(final_mean_embeddings)
 
+    # Aplico el embedding a verbos
     verbo_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Verbo'])
-
-    # Crear DataFrame expandido
     verbo_embeddings = pd.DataFrame(verbo_embeddings_matrix)
+    # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
     verbo_embeddings.columns = [f'Verbo_{i}' for i in range(verbo_embeddings.shape[1])]
 
+    # Aplico el embedding a contextos
     contexto_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Contexto'])
-
-    # Crear DataFrame expandido
     contexto_embeddings = pd.DataFrame(contexto_embeddings_matrix)
+    # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
     contexto_embeddings.columns = [f'Contexto_{i}' for i in range(contexto_embeddings.shape[1])]
 
 
-    # Lista de todos tus DataFrames
+    # Listado de todos lo inputs codificados
     dataframes = [
-        title_embedding_data,# Los embeddings de titulo
-        content_embedding_data,# Embeddings de contenido
-        verbo_embeddings,    # Embeddings de verbo
-        contexto_embeddings, # Embeddings de contexto
-        boolean_data,        # Agente, Paciente, Afectado
-        numeric_data,        # Eventos y Mencionado ** quite mencionado
-        encoded_data,        # Week Day, Sector, Datetime (One-Hot)
-        status_data,         # Multi-hot Status
+        title_embedding_data,
+        content_embedding_data,
+        verbo_embeddings,   
+        contexto_embeddings, 
+        boolean_data,        
+        numeric_data,       
+        encoded_data,       
+        status_data,         
     ]
 
-    # Unirlos todos lateralmente
+    # Df con los inputs codificados
     df_inputs = pd.concat(dataframes, axis=1)
 
+# Salto todo el proceso de limpieza y devuelvo un df vacio
 else:
-    # SI VIENE VACÍO DESDE EL ORIGEN:
-    print("⚠️ 'inputs_totales_por_rol' está vacío desde el inicio. Generando df_inputs vacío.")
-    df_inputs = pd.DataFrame() # <--- Esto activa tu control de seguridad de abajo
+    print("El df 'inputs_totales_por_rol' esta vacio desde el inicio. Generando df_inputs vacio.")
+    df_inputs = pd.DataFrame() 
 
 
-# CONTROL DE SEGURIDAD ABSOLUTO: Si no hay datos, saltamos la red neuronal
+# Inferencia de los inputs
+# Si no hay inputs codificados, devuelvo señales vacias
 if df_inputs.empty:
-    print("⚠️ df_inputs está completamente vacío. Creando DataFrame de señales vacío...")
+    print("El df df_inputs esta vacio. Creo un df de señales vacio")
     seynales_modelo = pd.DataFrame(columns=["Fila Noticia", "Tickers Mapeados", "Date", "Prob_up", "Pred_label"])
 
 else:
@@ -3179,26 +3093,20 @@ else:
     X_content = df_inputs.iloc[:, 768:1536].values
     X_verb = df_inputs.iloc[:, 1536:2304].values
     X_context = df_inputs.iloc[:, 2304:3072].values
-    # X_meta = df_inputs.iloc[:, 3072:3076].values #3076
-    # Selección explícita por nombres para X_meta (Garantiza siempre 9 columnas)
     columnas_meta = [
         'Agente', 
         'Paciente', 
         'Afectado', 
         'Eventos', 
         'Status_speculative', 
-        'Status_in progress',       # Ojo: con espacio según tu log
-        'Status_confirmed neutral',  # Ojo: con espacio según tu log
-        'Status_confirmed positive', # Ojo: con espacio según tu log
-        'Status_confirmed negative'  # Ojo: con espacio según tu log
+        'Status_in progress',      
+        'Status_confirmed neutral', 
+        'Status_confirmed positive', 
+        'Status_confirmed negative'  
     ]
-
     X_meta = df_inputs[columnas_meta].values
 
-    # =========================================================
-    # ESCALADO INDEPENDIENTE
-    # =========================================================
-
+    # Estandarizo
     scaler_title = StandardScaler()
     scaler_content = StandardScaler()
     scaler_verb = StandardScaler()
@@ -3211,6 +3119,7 @@ else:
     X_context = scaler_context.fit_transform(X_context)
     X_meta = scaler_meta.fit_transform(X_meta)
 
+    # Convierto a tensor de Pytorch para la red neuronal
     X_title = torch.tensor(X_title, dtype=torch.float32)
     X_content = torch.tensor(X_content, dtype=torch.float32)
     X_verb = torch.tensor(X_verb, dtype=torch.float32)
@@ -3219,114 +3128,71 @@ else:
 
     batch_size = 512
 
+    # Empaqueto los tensores de cada dataset
     test_loader = DataLoader(
         TensorDataset(X_title, X_content, X_verb, X_context, X_meta),
         batch_size=batch_size,
-        shuffle=False  # importante: mantener orden temporal
+        shuffle=False  
     )
-
+    
+    # Arquitectura del modelo
     class MultiInputModel(nn.Module):
 
         def __init__(self):
 
             super().__init__()
-
-            # =================================================
-            # HIPERPARAMETROS NN_41
-            # =================================================
-
+            
+            # Hiperparameto del modelo optimo: NN_41
             hidden_dim = 48
             dropout = 0.15
 
-            small_dim = hidden_dim // 2  # 24
+            small_dim = hidden_dim // 2  
 
-            # =================================================
-            # TITLE
-            # =================================================
-
+            # Titulo
             self.title_branch = nn.Sequential(
-
                 nn.Linear(768, hidden_dim),
-
                 nn.ReLU(),
-
                 nn.BatchNorm1d(hidden_dim),
-
                 nn.Dropout(dropout),
-
                 nn.Linear(hidden_dim, hidden_dim),
-
                 nn.ReLU()
             )
 
-            # =================================================
-            # CONTENT
-            # =================================================
-
+            # Contenido
             self.content_branch = nn.Sequential(
-
                 nn.Linear(768, hidden_dim),
-
                 nn.ReLU(),
-
                 nn.BatchNorm1d(hidden_dim),
-
                 nn.Dropout(dropout),
-
                 nn.Linear(hidden_dim, hidden_dim),
-
                 nn.ReLU()
             )
 
-            # =================================================
-            # VERB
-            # =================================================
-
+            # Verbo
             self.verb_branch = nn.Sequential(
-
                 nn.Linear(768, small_dim),
-
                 nn.ReLU(),
-
                 nn.Linear(small_dim, small_dim),
-
                 nn.ReLU()
             )
 
-            # =================================================
-            # CONTEXT
-            # =================================================
-
+            # Contexto
             self.context_branch = nn.Sequential(
-
                 nn.Linear(768, small_dim),
-
                 nn.ReLU(),
-
                 nn.Linear(small_dim, small_dim),
-
                 nn.ReLU()
             )
 
-            # =================================================
-            # META
-            # =================================================
-
+            # Metadatos
             self.meta_branch = nn.Sequential(
-
                 nn.Linear(9, 32),
-
                 nn.ReLU(),
-
                 nn.Linear(32, 32),
-
                 nn.ReLU()
             )
 
-            # =================================================
-            # COMBINED DIM
-            # =================================================
-
+            # Comnbinacion dimensiones
             combined_dim = (
                 hidden_dim
                 + hidden_dim
@@ -3334,40 +3200,26 @@ else:
                 + small_dim
             )
 
-            # =================================================
-            # GATE
-            # =================================================
-
+            # Gate
             self.gate = nn.Sequential(
-
                 nn.Linear(combined_dim, combined_dim),
-
                 nn.Sigmoid()
             )
 
-            # =================================================
-            # HEAD
-            # =================================================
-
+            # Cabeza
             total_dim = combined_dim * 2 + 32
-
+            
             self.head = nn.Sequential(
-
                 nn.Linear(total_dim, 256),
-
                 nn.ReLU(),
-
                 nn.Dropout(dropout),
-
                 nn.Linear(256, 128),
-
                 nn.ReLU(),
-
                 nn.Dropout(dropout),
-
                 nn.Linear(128, 1)
             )
 
+        # Forward pass
         def forward(
             self,
             x_title,
@@ -3404,71 +3256,67 @@ else:
 
             return self.head(x)
 
-    # 2. CONFIGURA EL DISPOSITIVO
+    # Configur el cpu
     device = torch.device("cpu")
 
-    # 3. INSTANCIA EL MODELO
+    # Intancio el modelo
     model = MultiInputModel()
 
-    # 4. CARGA LOS PESOS DESDE TU RUTA
-    # model.load_state_dict(torch.load("mi_modelo_entrenado.pth", map_location=device))
+    # Cargo los pesos del modelo optimo
     model.load_state_dict(torch.load(buffer, map_location=device))
 
-    # 5. MODO EVALUACIÓN
+    # Evaluo
     model.to(device)
     model.eval()
 
     model.eval()
     all_probs_test = []
 
+    # Inferencia
     with torch.inference_mode():
-        # El loader ahora solo devuelve los inputs, sin y_batch
         for x_title, x_content, x_verb, x_context, x_meta in test_loader:
 
-            # Mover a CPU
+            # Muevo a cpu
             x_title = x_title.to(device)
             x_content = x_content.to(device)
             x_verb = x_verb.to(device)
             x_context = x_context.to(device)
             x_meta = x_meta.to(device)
 
-            # Predicción
+            # Predigo
             outputs_test = model(x_title, x_content, x_verb, x_context, x_meta)
             probs_test = torch.sigmoid(outputs_test)
 
             all_probs_test.extend(probs_test.cpu().numpy())
 
-    # Convertir a un array plano para fácil manejo
+    # Convierto a array
     predicciones_finales = np.array(all_probs_test).flatten()
 
-
-    # convertir a numpy si no lo son
+    # Convierto a numpy
     probs = np.array(all_probs_test).flatten()
 
-    # etiqueta predicha con threshold 0.5
+    # Etiquta bajo un umbral de 0.5
     y_pred = (probs >= 0.5).astype(int)
 
-    # construir dataframe
+    # Construyo el df de probabilidades y etiqueta
     df_results = pd.DataFrame({
         "Prob_up": probs,
         "Pred_label": y_pred
     })
 
-    # Unimos seleccionando solo las 3 columnas de inputs_gramatical
+    # Genero el df de señales para sistema de trading
     seynales_modelo = inputs_gramatical[["Fila Noticia", "Tickers Mapeados", "Date"]].merge(
         df_results,
-        left_index=True,  # Usamos el índice si los resultados mantienen el orden original
+        left_index=True,  
         right_index=True
     )
 
-# seynales_modelo = seynales_modelo.reset_index().rename(columns={'index': 'ID'})
-# =====================================================================
-# BLOQUE DE EXPORTACIÓN (FUERA DEL IF/ELSE - SIN IDENTACIÓN)
-# =====================================================================
-print("Iniciando actualización de la tabla 'model_signals'...")
+
+# Exporto la señales a la tabla de dynamodb model_signals
+print("Iniciando actualización de la tabla 'model_signals'")
 tabla_signal = dynamodb.Table('model_signals')
 
-# 1. Borrado absoluto de lo que hubiera antes
+# Borro todo lo de la tabla
 response = tabla_signal.scan(ProjectionExpression='ID')
 items_a_borrar = response.get('Items', [])
 
@@ -3481,21 +3329,21 @@ if items_a_borrar:
     with tabla_signal.batch_writer() as batch:
         for item in items_a_borrar:
             batch.delete_item(Key={'ID': item['ID']})
-    print("Tabla vaciada por completo.")
+    print("Tabla vaciada por completo")
 else:
-    print("La tabla ya estaba vacía.")
+    print("La tabla ya estaba vacia")
 
-# 2. Subida del DataFrame (Maneja si cayó en el IF o en el ELSE)
+# Subo las señales, si es que hay o no
 if not seynales_modelo.empty:
-    print(f"Preparando {len(seynales_modelo)} nuevos registros para subir...")
+    print(f"Preparando {len(seynales_modelo)} nuevos registros para subir")
     
-    # 1. Creamos la columna ID desde el índice
+    # Creo que la columna ID porque necesita la tabla esa key partition
     df_upload = seynales_modelo.reset_index().rename(columns={'index': 'ID'})
     
-    # CORRECCIÓN CLAVE: ID como Entero puro (Compatible con ID (N) en DynamoDB)
+    # Transformo ID como entero
     df_upload['ID'] = df_upload['ID'].astype(int)
     
-    # Forzar que la fecha sea siempre String para AWS
+    # Transformo fecha a string
     df_upload['Date'] = df_upload['Date'].astype(str)
     
     # Formateo de tipos para AWS
@@ -3503,7 +3351,6 @@ if not seynales_modelo.empty:
         df_upload[col] = df_upload[col].apply(lambda x: Decimal(str(x)) if pd.notnull(x) else None)
         
     for col in df_upload.select_dtypes(include=[int, 'int64']).columns:
-        # CORRECCIÓN CLAVE: Convertir a int nativo de Python uno a uno (Evita int64 de numpy)
         df_upload[col] = df_upload[col].apply(lambda x: int(x) if pd.notnull(x) else None)
         
     registros = df_upload.to_dict(orient='records')
@@ -3514,6 +3361,6 @@ if not seynales_modelo.empty:
             
     print("Nuevos datos subidos con éxito a 'model_signals'.")
 else:
-    print("El DataFrame de señales está vacío. La tabla quedará vacía de forma intencional.")
+    print("El DataFrame de señales esta vacio. La tabla quedara vacia de forma intencional.")
 
 
