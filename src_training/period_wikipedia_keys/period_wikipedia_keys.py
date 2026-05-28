@@ -162,6 +162,7 @@ def get_unique_sorted_by_freq_multi(df, columns):
 
     combined_series = df[columns].stack().astype(str)
     all_items = [item.strip() for sublist in combined_series.str.split(",") for item in sublist]
+    all_items = [item for item in all_items if item.lower() != 'nan' and item != '']
     counts = Counter(all_items)
 
     return [word for word, _ in counts.most_common()]
