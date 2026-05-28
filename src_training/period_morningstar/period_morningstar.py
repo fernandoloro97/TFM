@@ -101,6 +101,8 @@ df_sectores_NA = df_sectores[df_sectores.isna().any(axis=1)]
 # Procedo con la busqueda de tickers sin sectores
 tickers_sin_sector = df_sectores_NA["Ticker"]
 
+print(tickers_sin_sector)
+
 # Otra fuente bastan fiable para estos tickers faltantes que son historicos es Digrin
 def get_digrin_data(ticker):
     url = f"https://www.digrin.com/stocks/detail/{ticker}/"
