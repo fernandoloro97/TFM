@@ -1,6 +1,7 @@
 import requests
 import re
 import pandas as pd
+import numpy as np
 import time
 from bs4 import BeautifulSoup
 from thefuzz import process, fuzz
@@ -8,9 +9,42 @@ from datetime import datetime
 from collections import Counter
 from groq import Groq
 import json
+import boto3
 
-real_new_tickers = sp500_historico
 
+# Instancio el dyanmodb
+dynamodb = boto3.resource("dynamodb")
+tabla_sp500_in_out = dynamodb.Table("sp500_in_out")
+tabla_wikipedia_keys = dynamodb.Table("period_wikipedia_keys")
+
+# Descargo la tabla
+items = []
+response = tabla_sp500_in_out.scan()
+items.extend(response.get("Items", []))
+
+# Manejo varias ventanas de la tabla
+while "LastEvaluatedKey" in response:
+    response = tabla_sp500_in_out.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+    items.extend(response.get("Items", []))
+
+# Transformo la tabla a df
+sp500_in_out = pd.DataFrame(items)
+
+# Aseguro formato datime a las fechas
+sp500_in_out["Date Added"] = pd.to_datetime(
+    sp500_in_out["Date Added"], errors="coerce"
+)
+sp500_in_out["Date Removed"] = pd.to_datetime(
+    sp500_in_out["Date Removed"], errors="coerce"
+)
+
+# Los tickers, company y duration aseguro el formato string
+string_cols = ["Ticker", "Company Name", "Duration"]
+for col in string_cols:
+    if col in sp500_in_out.columns:
+        sp500_in_out[col] = sp500_in_out[col].astype(str)
+        
+            
 # Webscrapping a wikipedia
 HEADERS = {"User-Agent": "MiScriptDePrueba/1.0 (contacto@tuemail.com)"}
 
@@ -80,8 +114,8 @@ def scrape_wikipedia_infobox(company_name):
 
 # Ejecuto el webscrapeo para solo los nuevos tickers
 rows = []
-total = len(real_new_tickers)
-for _, row in real_new_tickers.iterrows():
+total = len(sp500_in_out)
+for _, row in sp500_in_out.iterrows():
     data = scrape_wikipedia_infobox(row["Company Name"])
     rows.append({"Ticker": row["Ticker"], "Company Name": row["Company Name"], **data})
     time.sleep(0.3)
@@ -91,53 +125,6 @@ new_wikipedia_keys = pd.DataFrame(rows, columns=[
     "Ticker", "Company Name", "Predecessor",
     "Products", "Services", "Brands", "Divisions", "Subsidiaries"
 ])
-
-
-
-
-
-# CONTROLO EL TIEMPO:
-# --- SECCIÓN MODIFICADA CON TEMPORIZADOR ---
-
-rows = []
-limite_tiempo = 60  # 1 minuto en segundos
-inicio_tiempo = time.time()
-interrumpido = False
-
-print("Iniciando ejecución de prueba (Máximo 1 minuto)...")
-
-for idx, row in real_new_tickers.iterrows():
-    # Comprobar si ya pasó 1 minuto
-    if time.time() - inicio_tiempo > limite_tiempo:
-        print(f"\n⏱️ ¡Tiempo límite de 1 minuto alcanzado! Deteniendo raspado en la fila {idx}...")
-        interrumpido = True
-        break
-        
-    print(f"Procesando en vivo: {row['Company Name']}...")
-    data = scrape_wikipedia_infobox(row["Company Name"])
-    rows.append({"Ticker": row["Ticker"], "Company Name": row["Company Name"], **data})
-    time.sleep(0.3)
-
-# Carga de datos según el resultado del temporizador
-if interrumpido:
-    print("🔄 Cargando variable de respaldo (tabla_ya_descargado) para continuar sin esperar...")
-    # Asignamos directamente tus datos ya listos a la variable final
-    new_wikipedia_keys = tabla_ya_descargado
-else:
-    print("✅ El proceso terminó por completo antes de 1 minuto.")
-    new_wikipedia_keys = pd.DataFrame(rows, columns=[
-        "Ticker", "Company Name", "Predecessor",
-        "Products", "Services", "Brands", "Divisions", "Subsidiaries"
-    ])
-
-# Tu flujo continúa normalmente usando 'new_wikipedia_keys'
-print(f"Estructura lista. Total filas en DataFrame final: {len(new_wikipedia_keys)}")
-
-
-
-
-
-
     
 # Limpio y estandarizo los datos brutos webscrappeados
 def clean_names(text):
@@ -434,3 +421,29 @@ for _, fix in df_corrections.iterrows():
 
 new_wikipedia_keys = new_wikipedia_keys.drop(columns=[ "Need Revision", "Incorrect Columns"])
 
+
+# Subida del df a la tabla del dynomdb
+# Copia de seguridad para modificaciones
+df_preparado = new_wikipedia_keys.copy()
+
+# Todas las columnas las paso a texto
+for col in df_preparado.columns:
+    df_preparado[col] = df_preparado[col].astype(str)
+
+# Reemplazo NaN por vacio
+df_preparado = df_preparado.replace(
+    {"nan": None, "None": None, "": None, np.nan: None}
+)
+
+# Transformo el df a diccionario
+items_to_upload = [
+    {k: v for k, v in row.items() if v is not None}
+    for row in df_preparado.to_dict(orient="records")
+]
+
+# 4. Subir el diccionario a la tabla
+with tabla_wikipedia_keys.batch_writer() as batch:
+    for item in items_to_upload:
+        batch.put_item(Item=item)
+
+print("Tabla period_wikipeda_keys subida")
