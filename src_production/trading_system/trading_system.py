@@ -8,17 +8,17 @@ import boto3
 
 
 
-# Configuración de AWS (Boto3 usará las variables de entorno de GitHub Actions)
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1') # Cambia a tu región
+# Configuro el dynanom db
+dynamodb = boto3.resource('dynamodb', region_name='us-east-1') 
 s3 = boto3.client('s3')
 dynamodb_client = boto3.client('dynamodb', region_name='us-east-1')
 
+# Trasnformo la tabla a df
 def get_table_df(table_name):
     table = dynamodb.Table(table_name)
     response = table.scan()
     data = response['Items']
     
-    # Manejo de paginación si la tabla es grande
     while 'LastEvaluatedKey' in response:
         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
         data.extend(response['Items'])
@@ -26,6 +26,7 @@ def get_table_df(table_name):
     return pd.DataFrame(data)
 
 
+# Calculo las metricas necesarias para entrar y salir en el mercado
 def obtener_metricas(
     fila,
     df_vol,
@@ -39,9 +40,7 @@ def obtener_metricas(
     fecha_señal = fila['Date']
     label       = fila['Pred_label']
 
-    # ==========================================================
-    # VALIDACIONES INICIALES
-    # ==========================================================
+    # Compruebo si puedo entrar en apertura
 
     if ticker not in df_vol.columns:
         return pd.Series([np.nan] * 20)
@@ -63,9 +62,7 @@ def obtener_metricas(
         df_vol.index[idx_pos].date() > fecha_señal.date()
     )
 
-    # ==========================================================
-    # BUSQUEDA ENTRADA
-    # ==========================================================
+    # Busco la entrada al mercado
 
     if is_morning_today or is_overnight:
 
@@ -144,9 +141,7 @@ def obtener_metricas(
                     pd.NaT, pd.NaT
                 ])
 
-    # ==========================================================
-    # VALIDAR IDX_ENTRADA EN PRECIOS
-    # ==========================================================
+    # Valido el precio de entrada en precios
 
     if idx_entrada not in df_px.index:
 
@@ -159,9 +154,7 @@ def obtener_metricas(
             pd.NaT, pd.NaT
         ])
 
-    # ==========================================================
-    # LIMITE PRODUCCION
-    # ==========================================================
+    # Limite para salir del mercado en cierre
 
     ultimo_ts_disponible = df_px.index[-1]
 
@@ -169,9 +162,7 @@ def obtener_metricas(
         f"{ultimo_ts_disponible.date()} 15:59:00"
     )
 
-    # ==========================================================
-    # FUNCION AUXILIAR HISTORICO
-    # ==========================================================
+    # Calculo el historico necesario para calcular mis metricas de entrada y salida al mercado
 
     def calcular_historico():
 
@@ -194,9 +185,7 @@ def obtener_metricas(
             df_vol.index < idx_entrada
         )
 
-        # ======================================================
-        # HORARIOS REFERENCIA
-        # ======================================================
+        # Fijo horas y latencia limites
 
         if hora_dt <= limite_apertura:
 
@@ -212,9 +201,7 @@ def obtener_metricas(
                 .tolist()
             )
 
-        # ======================================================
-        # HISTORICOS
-        # ======================================================
+        # Guardo el rango real
 
         v_hist = df_vol.loc[mask_hist, ticker]
 
@@ -228,9 +215,7 @@ def obtener_metricas(
             p_hist.index.strftime('%H:%M').isin(horarios_ref)
         ].dropna()
 
-        # ======================================================
-        # COBERTURA REAL
-        # ======================================================
+        # Guardo los historicos reales
 
         obs_esperadas_vol = (
             df_vol.loc[mask_hist, ticker]
@@ -259,9 +244,7 @@ def obtener_metricas(
             if obs_esperadas_px > 0 else 0
         )
 
-        # ======================================================
-        # METRICAS
-        # ======================================================
+        # Ahora si calculos la metricas para entrar y salir al mercado
 
         if cobertura_vol < min_cobertura:
 
@@ -289,9 +272,7 @@ def obtener_metricas(
             px_media = round(p_hist.mean(), 2)
             px_std   = round(p_hist.std(), 2)
 
-        # ======================================================
-        # UMBRALES
-        # ======================================================
+        # Calculos los umbrales minimos de entrada y los umbrales de entrada y salida del mercado una vez ya dentro
 
         if pd.isna(px_media) or pd.isna(px_std):
 
@@ -319,9 +300,7 @@ def obtener_metricas(
             u_ent_sup
         )
 
-    # ==========================================================
-    # PENDIENTE_ENTRAR (SIN DATOS FUTUROS)
-    # ==========================================================
+    # Trading que no hubo tiempo para calcular las metricas, se quedan como pendiente de entrar
 
     if (
         idx_entrada > ultimo_ts_disponible
@@ -348,9 +327,7 @@ def obtener_metricas(
             pd.NaT, pd.NaT
         ])
 
-    # ==========================================================
-    # DATOS ENTRADA
-    # ==========================================================
+    # Calculo precio de entrada, si es que hay
 
     pos_entrada = df_vol.index.get_loc(idx_entrada)
 
@@ -369,10 +346,7 @@ def obtener_metricas(
 
     px_entrada = round(px_entrada, 2)
 
-    # ==========================================================
-    # HISTORICO
-    # ==========================================================
-
+    # Ejecuto la funcion apra obtener las metricas que utilizan historicos
     (
         vol_media,
         vol_1_p,
@@ -384,9 +358,7 @@ def obtener_metricas(
         u_ent_sup
     ) = calcular_historico()
 
-    # ==========================================================
-    # SIN HISTORICO SUFICIENTE
-    # ==========================================================
+    # Si no hay un historicos con suficientes datos, todo NaN
 
     if pd.isna(px_media) or pd.isna(px_std):
 
@@ -399,9 +371,7 @@ def obtener_metricas(
             pd.NaT, pd.NaT
         ])
 
-    # ==========================================================
-    # VALIDACION ENTRADA
-    # ==========================================================
+    # Si el precio de entrada no supero el umbral de entrada, no se negocia
 
     if not (u_ent_inf <= px_entrada <= u_ent_sup):
 
@@ -414,9 +384,7 @@ def obtener_metricas(
             pd.NaT, pd.NaT
         ])
 
-    # ==========================================================
-    # BUSQUEDA SALIDA
-    # ==========================================================
+    # Calculo el precio de salida
 
     ventana_px = df_px[ticker].iloc[
         pos_entrada + 1:
@@ -427,6 +395,7 @@ def obtener_metricas(
     min_disparo      = np.nan
     motivo           = "TIEMPO"
 
+    # Si uso trailing stop, calculos el movimiento de los umbrales de stop loss
     if trailing:
 
         u_inf_actual    = u_gen_inf
@@ -494,9 +463,7 @@ def obtener_metricas(
 
                 break
 
-    # ==========================================================
-    # SALIDA POR TIEMPO
-    # ==========================================================
+    # En caso que no se supere dichos umbrales, pues se sale del mercado por tiempo que dura la ventana de analisis
 
     if idx_salida_final is None:
 
@@ -521,9 +488,7 @@ def obtener_metricas(
                 idx_entrada, pd.NaT
             ])
 
-    # ==========================================================
-    # RESULTADOS
-    # ==========================================================
+    # Calculos las metricas de salida y resultados
 
     px_salida = round(
         df_px.at[idx_salida_final, ticker],
@@ -563,8 +528,11 @@ def obtener_metricas(
         pnl, res, motivo,
         idx_entrada, idx_salida_final
     ])
-
+    
+    
+# Clase que simula un sistema de trading diario, manteniendo el estado del capital, posiciones abiertas y movimientos de caja entre ejecuciones
 class TradingSimulator:
+    # Fijo la configuracion del sistema trading para el modelo optimo encontrado, con el capital optimo tambien encontrado
     def __init__(self,capital_inicial=20000,ventana=30,trailing=True,trailing_trigger_pct=0.02,
                  usar_limite_exposicion=True,limite_exposicion_pct=0.05,perc_riesgo=0.005):
 
@@ -573,14 +541,15 @@ class TradingSimulator:
         self.ventana               = ventana
         self.trailing              = trailing
         self.trailing_trigger_pct  = trailing_trigger_pct
-        self.usar_limite_exposicion = usar_limite_exposicion  # NUEVO
-        self.limite_exposicion_pct  = limite_exposicion_pct   # NUEVO
-        self.perc_riesgo            = perc_riesgo             # NUEVO
+        self.usar_limite_exposicion = usar_limite_exposicion  
+        self.limite_exposicion_pct  = limite_exposicion_pct   
+        self.perc_riesgo            = perc_riesgo             
         self.posiciones            = {}
         self.cola_salidas          = {}
         self.movimientos_caja      = []
         self.reporte_diario        = []
 
+    # Proceso todas las salidas de posiciones cuyo timestamp es anterior o igual al momento dado, actualizando el capital
     def _liquidar_salidas_hasta(self, hasta_ts, df_px):
         for ticker in list(self.cola_salidas.keys()):
             ts_vencidos = sorted([
@@ -615,6 +584,7 @@ class TradingSimulator:
             if not self.cola_salidas[ticker]:
                 del self.cola_salidas[ticker]
 
+    # Registro la entrada a una posicion descontando el efectivo correspondiente y programando su salida en la cola
     def _abrir_posicion(self, ticker, volumen, px_ent, pred,
                         ts_entrada, ts_salida):
         comision = round(0.005 * volumen, 2)
@@ -634,7 +604,11 @@ class TradingSimulator:
         if ts_salida not in self.cola_salidas[ticker]:
             self.cola_salidas[ticker][ts_salida] = []
         self.cola_salidas[ticker][ts_salida].append({'cant': volumen, 'pred': pred})
+        
 
+    # Procesa en un unico flujo cronologico compartido las señales nuevas del dia y 
+    # los pendientes del dia anterior (tanto entradas como salidas), garantizando 
+    # que el capital disponible se actualice en todo momento
     def ejecutar_dia(
         self,
         df_señales_hoy,
@@ -642,14 +616,6 @@ class TradingSimulator:
         df_px,
         df_pendientes_ayer=None,
     ):
-        """
-        Procesa en un único flujo cronológico con capital compartido:
-          - PENDIENTE_SALIR de ayer  → se liquidan PRIMERO (devuelven capital)
-          - señales nuevas de hoy    → loop por ts_entrada_real
-          - PENDIENTE_ENTRAR de ayer → compiten por capital en el mismo ts
-     
-        Devuelve: (df_resultado_hoy, df_pendientes_resueltos)
-        """
      
         tiene_nuevas     = df_señales_hoy is not None and not df_señales_hoy.empty
         tiene_pendientes = df_pendientes_ayer is not None and not df_pendientes_ayer.empty
@@ -663,10 +629,7 @@ class TradingSimulator:
             'motivo_salida', 'ts_entrada_real', 'ts_salida_real',
         ]
      
-        # ------------------------------------------------------------------ #
-        # 1. Métricas señales nuevas                                          #
-        # ------------------------------------------------------------------ #
-     
+        # Metricas de las señales de hoy
         if tiene_nuevas:
             df_nuevas = df_señales_hoy.copy()
             df_nuevas['_origen'] = 'HOY'
@@ -682,11 +645,7 @@ class TradingSimulator:
         else:
             df_nuevas = pd.DataFrame()
      
-        # ------------------------------------------------------------------ #
-        # 2. Métricas pendientes — recalcular TODAS para obtener              #
-        #    ts_salida_real y px_salida actualizados con datos de hoy         #
-        # ------------------------------------------------------------------ #
-     
+        # Metricas de las señales pendientes de ayer
         if tiene_pendientes:
             df_pend = df_pendientes_ayer.copy()
             df_pend['_origen'] = 'PENDIENTE'
@@ -702,10 +661,8 @@ class TradingSimulator:
         else:
             df_pend = pd.DataFrame()
      
-        # ------------------------------------------------------------------ #
-        # 3. audit_data — inicializar entradas                                #
-        # ------------------------------------------------------------------ #
-     
+        # Este bloque inicializa el registro de auditoria: registro y seguimiento para cada señal 
+        # y determina su estado de partida antes de entrar al loop de ejecucion
         audit_data = {}
      
         if tiene_nuevas:
@@ -726,40 +683,31 @@ class TradingSimulator:
                 estado_orig = df_pendientes_ayer.at[idx, 'estado']
      
                 if estado_orig == 'PENDIENTE_SALIR':
-                    # Conservar cant_negociada original; el resto se actualiza al liquidar
                     audit_data[('PEND', idx)]['estado']          = 'PENDIENTE_SALIR'
                     audit_data[('PEND', idx)]['tipo_ejec_final'] = df_pendientes_ayer.at[idx, 'tipo_ejec_entrada'] \
                                                                     if 'tipo_ejec_entrada' in df_pendientes_ayer.columns else np.nan
                     audit_data[('PEND', idx)]['cant_negociada']  = df_pendientes_ayer.at[idx, 'cant_negociada']
+                    
                 else:
-                    # PENDIENTE_ENTRAR: detectar nuevo estado con métricas recalculadas
                     row_c = df_pend.loc[idx]
                     if pd.isna(row_c['px_entrada']) and pd.isna(row_c['u_gen_inf']):
                         audit_data[('PEND', idx)]['estado']          = 'PENDIENTE_ENTRAR'
                         audit_data[('PEND', idx)]['tipo_ejec_final'] = 'PENDIENTE_ENTRAR'
+                        
                     elif pd.isna(row_c.get('ts_entrada_real')):
                         audit_data[('PEND', idx)]['estado']          = 'NO NEGOCIADO'
                         audit_data[('PEND', idx)]['tipo_ejec_final'] = 'FUERA_UMBRAL'
+                        
                     else:
-                        # Tiene ts_entrada_real (con o sin ts_salida_real)
-                        # → debe entrar al loop para abrir posición
                         audit_data[('PEND', idx)]['estado']          = 'PENDIENTE_ENTRAR'
                         audit_data[('PEND', idx)]['tipo_ejec_final'] = row_c['tipo_ejec_entrada']
      
-        # ------------------------------------------------------------------ #
-        # 4. REGISTRAR PENDIENTE_SALIR DE AYER EN cola_salidas               #
-        #    No los liquidamos aquí — los metemos en la cola para que         #
-        #    _liquidar_salidas_hasta los ejecute en su ts_salida_real         #
-        #    exacto dentro del loop. Así respetamos el orden cronológico:     #
-        #    si CTAS entra a las 09:30 y TRGP sale a las 10:06, el capital   #
-        #    de TRGP NO está disponible cuando entra CTAS.                    #
-        # ------------------------------------------------------------------ #
-     
+        # Registro pendientes salir de ayer y lo guardo para que se ejecute cronologicamente
         if tiene_pendientes:
             mask_salir_ayer = df_pendientes_ayer['estado'] == 'PENDIENTE_SALIR'
             for idx in df_pend[mask_salir_ayer].index:
                 ak   = ('PEND', idx)
-                fila = df_pend.loc[idx]       # métricas recalculadas
+                fila = df_pend.loc[idx]      
                 orig = df_pendientes_ayer.loc[idx]
      
                 ts_sal = fila.get('ts_salida_real')
@@ -773,15 +721,12 @@ class TradingSimulator:
                 audit_data[ak]['cant_negociada'] = cant
      
                 if pd.notna(ts_sal) and pd.notna(px_sal) and cant > 0:
-                    # Registrar en cola para que el loop lo liquide en orden
                     if ticker not in self.cola_salidas:
                         self.cola_salidas[ticker] = {}
                     if ts_sal not in self.cola_salidas[ticker]:
                         self.cola_salidas[ticker][ts_sal] = []
                     self.cola_salidas[ticker][ts_sal].append({'cant': cant, 'pred': pred})
      
-                    # Guardar datos necesarios para el audit post-liquidación
-                    # Los almacenamos en un dict auxiliar que consultamos al final
                     if not hasattr(self, '_pend_salir_audit'):
                         self._pend_salir_audit = {}
                     self._pend_salir_audit[ticker] = self._pend_salir_audit.get(ticker, [])
@@ -791,18 +736,13 @@ class TradingSimulator:
                         'ts_sal': ts_sal,
                     })
                     audit_data[ak]['caja_ent'] = round(px_ent * cant, 2) if pd.notna(px_ent) else np.nan
-                    audit_data[ak]['estado']   = 'PENDIENTE_SALIR'  # se actualizará a NEGOCIADO tras el loop
+                    audit_data[ak]['estado']   = 'PENDIENTE_SALIR'  
                 else:
-                    # Sin salida disponible → sigue PENDIENTE_SALIR
                     audit_data[ak]['estado'] = 'PENDIENTE_SALIR'
-     
-        # ------------------------------------------------------------------ #
-        # 5. Loop cronológico unificado por ts_entrada_real                   #
-        # ------------------------------------------------------------------ #
-     
+ 
+        # Loop cronologico segun el minutos de entrada real al mercado
         filas_activas_hoy  = df_nuevas if tiene_nuevas else pd.DataFrame()
      
-        # Para pendientes: solo PENDIENTE_ENTRAR que ahora tienen entrada disponible
         if tiene_pendientes:
             filas_activas_pend = df_pend[
                 df_pend.index.map(
@@ -832,7 +772,6 @@ class TradingSimulator:
             capital_disponible = self.capital
             ordenes_propuestas = []
      
-            # Señales nuevas en este ts
             if not filas_activas_hoy.empty:
                 grupo_hoy = filas_activas_hoy[
                     (filas_activas_hoy['ts_entrada_real'] == f_entrada) &
@@ -848,7 +787,6 @@ class TradingSimulator:
                     ordenes      = ordenes_propuestas,
                 )
      
-            # PENDIENTE_ENTRAR resueltos en este ts
             if not filas_activas_pend.empty:
                 grupo_pend = filas_activas_pend[
                     filas_activas_pend['ts_entrada_real'] == f_entrada
@@ -915,20 +853,11 @@ class TradingSimulator:
                     audit_data[ak]['res_neto']       = np.nan
                     audit_data[ak]['estado']         = 'PENDIENTE_SALIR'
      
-        # ------------------------------------------------------------------ #
-        # 6. Liquidar salidas restantes en cola                               #
-        # ------------------------------------------------------------------ #
-     
+        # Liquido las salidades restante en cola
         for ts in sorted([ts for c in self.cola_salidas.values() for ts in c.keys()]):
             self._liquidar_salidas_hasta(ts, df_px)
      
-        # ------------------------------------------------------------------ #
-        # 6b. Actualizar audit de PENDIENTE_SALIR de ayer                     #
-        #     _liquidar_salidas_hasta ya actualizó self.capital y              #
-        #     movimientos_caja. Ahora actualizamos audit_data con res_neto     #
-        #     y estado final.                                                  #
-        # ------------------------------------------------------------------ #
-     
+        # Actualizo el capital disponible tras las liquidacion de pendiente salir
         if hasattr(self, '_pend_salir_audit'):
             for ticker, entradas in self._pend_salir_audit.items():
                 for e in entradas:
@@ -949,12 +878,9 @@ class TradingSimulator:
                         audit_data[ak]['res_neto'] = round(res_neto, 2)
                         audit_data[ak]['estado']   = 'NEGOCIADO'
      
-            del self._pend_salir_audit  # limpiar para no contaminar próximas ejecuciones
+            del self._pend_salir_audit  
      
-        # ------------------------------------------------------------------ #
-        # 7. Construir outputs                                                 #
-        # ------------------------------------------------------------------ #
-     
+        # Construyo el df de resultados final
         df_resultado = pd.DataFrame()
         if tiene_nuevas:
             df_resultado = _construir_df_resultado(
@@ -975,6 +901,9 @@ class TradingSimulator:
      
         return df_resultado, df_pend_resueltos
     
+    
+    # Reconstruyo la curva de equity diaria a partir de todos los movimientos de caja ejecutados, 
+    # separando el capital en cash y el valor a precio de cierre de sesion de las posiciones abiertas 
     def construir_balance(self, df_todo, df_px, fecha_inicio=None):
  
         self.reporte_diario = []
@@ -990,14 +919,10 @@ class TradingSimulator:
      
             pred = op['Pred_label']
      
-            # ─────────────────────────────
-            # ENTRADA
-            # ─────────────────────────────
+            # Entradas de cash
             ts_ent = op.get('ts_entrada_real')
             if pd.notna(op.get('caja_ent')) and pd.notna(ts_ent):
-     
-                # Ignorar entradas anteriores a fecha_inicio:
-                # ya están incorporadas en capital_inicial
+    
                 if fecha_inicio is None or pd.Timestamp(ts_ent).date() >= fecha_inicio:
      
                     if pred == 1:
@@ -1008,13 +933,10 @@ class TradingSimulator:
                     flujo_ent -= cant * comision
                     eventos.append((ts_ent, flujo_ent))
      
-            # ─────────────────────────────
-            # SALIDA
-            # ─────────────────────────────
+            # Salidas de cash
             ts_sal = op.get('ts_salida_real')
             if pd.notna(op.get('caja_sal')) and pd.notna(ts_sal):
      
-                # Las salidas siempre se incluyen si ocurren en fecha_inicio o después
                 if fecha_inicio is None or pd.Timestamp(ts_sal).date() >= fecha_inicio:
      
                     if pred == 1:
@@ -1025,9 +947,7 @@ class TradingSimulator:
                     flujo_sal -= cant * comision
                     eventos.append((ts_sal, flujo_sal))
      
-        # ─────────────────────────────
-        # ORDENAR Y ACUMULAR CASH
-        # ─────────────────────────────
+        # Ordeno y acumulo el cash
         df_eventos = pd.DataFrame(eventos, columns=['ts', 'flujo']).sort_values('ts')
      
         if not df_eventos.empty:
@@ -1035,9 +955,7 @@ class TradingSimulator:
         else:
             df_eventos = pd.DataFrame(columns=['ts', 'flujo', 'capital'])
      
-        # ─────────────────────────────
-        # POR DÍAS
-        # ─────────────────────────────
+        # Ordeno por dias
         dias = sorted(set(df_px.index.date))
      
         if fecha_inicio:
@@ -1055,7 +973,7 @@ class TradingSimulator:
                 else self.capital_inicial
             )
      
-            # Valor posiciones abiertas a cierre
+            # Valor posiciones abiertas a precios de cierre de sesion
             dia_data  = df_px.loc[df_px.index.date == dia]
             cierre_16 = dia_data[dia_data.index.time == pd.Timestamp("16:00:00").time()]
      
@@ -1098,10 +1016,7 @@ class TradingSimulator:
      
         return pd.DataFrame(self.reporte_diario)
 
-# ======================================================================= #
-# Helpers — pegar FUERA de la clase, en la misma celda o antes            #
-# ======================================================================= #
- 
+# Diccionario para inicializar el registro de auditoria
 def _audit_entry_vacio():
     return {
         'cap_disponible':         np.nan,
@@ -1117,12 +1032,10 @@ def _audit_entry_vacio():
         'estado':                 'NO NEGOCIADO',
     }
  
- 
+# Calculo el tamaño de cada orden segun el capital disponible y el riesgo configurado, 
+# y las añade a la lista de propuestas pendientes de neteo con señales de diferentes direcciones para el mismo ticker
 def _proponer_ordenes(grupo, origen, capital_disp, sim, audit_data, ordenes):
-    """
-    Evalúa un grupo de filas y añade órdenes propuestas a la lista `ordenes`.
-    Comparte el mismo capital_disp (snapshot de self.capital en ese momento).
-    """
+
     for noti, sub_grupo in grupo.groupby('Fila Noticia'):
         for pred_val in [0, 1]:
             filas = sub_grupo[sub_grupo['Pred_label'] == pred_val]
@@ -1189,8 +1102,8 @@ def _proponer_ordenes(grupo, origen, capital_disp, sim, audit_data, ordenes):
                         audit_data[ak]['tipo_ejec_final'] = 'SIN_LIQUIDEZ'
  
  
+# Aplico el registro de auditoria de la ejecucion al df de señales y devuelve el resultado final con todas las columnas ordenadas
 def _construir_df_resultado(df, audit_data, origen, cols_base):
-    """Aplica audit_data al df y devuelve el dataframe con columnas ordenadas."""
  
     audit_local = {
         idx: audit_data[(origen, idx)]
@@ -1246,91 +1159,72 @@ def _construir_df_resultado(df, audit_data, origen, cols_base):
     return df[[c for c in cols_finales if c in df.columns]]
 
 
+# Manejo ahora la ejecucion del sistema trading y subida de datos a las tablas de interes en dynamodb
 def handler(event, context):
 
+    # Descargo las tablas y las conviertos a df
     precios_cierre_sesion = get_table_df('sesion_close_prices')
     volumenes_sesion = get_table_df('sesion_volumes')
     pendientes_ayer = get_table_df('pending_trade')
     historico_balance = get_table_df('daily_balance')
     seynales_modelo = get_table_df('model_signals')
 
-    # Reparar tabla de precios de cierre
+    # Reparo la tabla de precios de cierre
     if not precios_cierre_sesion.empty and 'Date' in precios_cierre_sesion.columns:
         precios_cierre_sesion['Date'] = pd.to_datetime(precios_cierre_sesion['Date'])
         precios_cierre_sesion.set_index('Date', inplace=True)
         precios_cierre_sesion.sort_index(inplace=True)
-        # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
         precios_cierre_sesion = precios_cierre_sesion.apply(pd.to_numeric, errors='coerce')
 
-    # Reparar tabla de volúmenes de sesión
+    # Reparo tabla de volumenes
     if not volumenes_sesion.empty and 'Date' in volumenes_sesion.columns:
         volumenes_sesion['Date'] = pd.to_datetime(volumenes_sesion['Date'])
         volumenes_sesion.set_index('Date', inplace=True)
         volumenes_sesion.sort_index(inplace=True)
-        # TRUCO CLAVE: Forzar conversión de todas las columnas (tickers) a números
         volumenes_sesion = volumenes_sesion.apply(pd.to_numeric, errors='coerce')
         
-
+    # Fijo el capital incial para la primera ejecucion, luego se usara el ultimo capital en cash 
     CAPITAL_POR_DEFECTO = 20000
-
+    # Cojo el capital en cash ultimo, sino existe, uso el capital por defecto
     if historico_balance.empty:
-        print(f"La tabla 'daily_balance' está vacía. Usando capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
+        print(f"La tabla 'daily_balance' esta vacia. Por tanto, uso el capital inicial por defecto: ${CAPITAL_POR_DEFECTO}")
         capital_hoy = CAPITAL_POR_DEFECTO
+        
     else:
-        print("¡Histórico contable recuperado! Extrayendo el último capital disponible...")
-        # 1. Aseguramos que los valores sean numéricos
+        print("Extraigo el ultimo capital en cash disponible")
         historico_balance['capital_cash'] = pd.to_numeric(historico_balance['capital_cash'])
-        
-        # 2. Ordenamos cronológicamente por fecha para garantizar que el último registro sea el de ayer
         historico_balance = historico_balance.sort_values('fecha').reset_index(drop=True)
-        
-        # 3. Extraemos el último capital_cash registrado en la base de datos
         capital_hoy = float(historico_balance['capital_cash'].iloc[-1])
-        print(f"Capital recuperado para la sesión de hoy: ${capital_hoy:.2f}")
+        print(f"Importe de capital en cash recuperado para la sesion de hoy: ${capital_hoy:.2f}")
         
         
-    # 2. Aplicar formateo estricto de tipos de datos (Corregido sin True_label)
+    # Reparto las tabla de señales del modelo, si existe
     if not seynales_modelo.empty:
-        # Columna de Texto (String)
         seynales_modelo['Tickers Mapeados'] = seynales_modelo['Tickers Mapeados'].astype(str)
-        
-        # Columnas de Números Enteros (Integers)
         seynales_modelo['ID'] = pd.to_numeric(seynales_modelo['ID'], errors='coerce').astype(int)
         seynales_modelo['Fila Noticia'] = pd.to_numeric(seynales_modelo['Fila Noticia'], errors='coerce').astype(int)
         seynales_modelo['Pred_label'] = pd.to_numeric(seynales_modelo['Pred_label'], errors='coerce').astype(int)
-        
-        # Columna de Números Decimales (Float)
         seynales_modelo['Prob_up'] = pd.to_numeric(seynales_modelo['Prob_up'], errors='coerce').astype(float)
-        
-        # Columna de Fecha y Hora (Datetime)
         seynales_modelo['Date'] = pd.to_datetime(seynales_modelo['Date'])
-        
-        # Limpieza de índices: Descartar desorden de filas y reiniciar desde 0
         seynales_modelo.reset_index(drop=True, inplace=True)
+        
     else:
-        # Estructura vacía con tipos definidos por si no hay registros
+        # Si no hay señales, devuevo un df vacio para evitar errores
         columnas = ['ID', 'Tickers Mapeados', 'Fila Noticia', 'Date', 'Prob_up', 'Pred_label']
         seynales_modelo = pd.DataFrame(columns=columnas)
 
 
-    # ==============================================================================
-    # REPARAR Y CONFIGURAR TABLA DE PENDIENTES DE AYER (PENDING_TRADE)
-    # ==============================================================================
-    # Si la tabla tiene registros, aplicamos tipado estricto para no romper el simulador
+    # Reparo y configuro la tabla de operaciones pendientes
     if not pendientes_ayer.empty:
-        print(f"¡Se encontraron {len(pendientes_ayer)} operaciones pendientes de ayer! Formateando...")
-        
-        # 1. Forzar conversión de la columna 'Date' a datetime real de Pandas
+        print(f"Encontre {len(pendientes_ayer)} operaciones pendientes de ayer. Procedo a repararlas")
         if 'Date' in pendientes_ayer.columns:
             pendientes_ayer['Date'] = pd.to_datetime(pendientes_ayer['Date'])
         
-        # 2. Convertir columnas de números enteros (IDs y contadores)
         columnas_enteras = ['Fila Noticia', 'Pred_label', 'True_label', 'minuto_entrada']
         for col in columnas_enteras:
             if col in pendientes_ayer.columns:
                 pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').fillna(0).astype(int)
                 
-        # 3. Convertir columnas monetarias, precios y volúmenes (Floats con NaN permitidos)
         columnas_decimales = [
             'Prob_up', 'vol_media_10d', 'vol_1_porc', 'px_media_10d', 'px_std_10d', 
             'cap_disponible', 'cap_riesgo', 'distancia_stop', 'cant_teorica_riesgo', 
@@ -1340,75 +1234,60 @@ def handler(event, context):
             if col in pendientes_ayer.columns:
                 pendientes_ayer[col] = pd.to_numeric(pendientes_ayer[col], errors='coerce').astype(float)
                 
-        # 4. Asegurar formato de texto para tickers y estado
         if 'Tickers Mapeados' in pendientes_ayer.columns:
             pendientes_ayer['Tickers Mapeados'] = pendientes_ayer['Tickers Mapeados'].astype(str)
         if 'estado' in pendientes_ayer.columns:
             pendientes_ayer['estado'] = pendientes_ayer['estado'].astype(str)
 
-        # 5. Reiniciar índice para eliminar residuos numéricos de DynamoDB
         pendientes_ayer.reset_index(drop=True, inplace=True)
+        
     else:
-        print("La tabla 'pending_trade' está vacía en DynamoDB. El simulador ignorará registros pasados.")
-        # Al dejarlo vacío, la condición 'None if pendientes_ayer.empty' del simulador funcionará perfectamente
+        print("La tabla 'pending_trade' esta vacia en dynamosb. El sistem tradng ignorara registros pasados.")
 
-    # ==============================================================================
-    # INSTANCIA Y EJECUCIÓN DEL SIMULADOR
-    # ==============================================================================
-    # Pasamos la variable dinámica 'capital_hoy' en lugar del número fijo 20000
+    # Instancia y ejecucion del sistema trading 
     sim = TradingSimulator(capital_inicial=capital_hoy, ventana=30)
-
-    # sim = TradingSimulator(capital_inicial=20000, ventana=30)
 
     df_resultado, df_pendientes_resueltos = sim.ejecutar_dia(
         df_señales_hoy     = seynales_modelo,
-        # Si está vacío pasamos None, si tiene filas pasamos el DataFrame
         df_pendientes_ayer = None if pendientes_ayer.empty else pendientes_ayer,
         df_vol             = volumenes_sesion,
         df_px              = precios_cierre_sesion,
     )
 
-    # 1. Capturamos la fecha y hora actual del sistema (Ej: Martes a las 08:00 AM UTC)
+    # Capturo la fecha de ayer porque se ejecuta con un dia de retraso
     hoy = datetime.now()
-    
-    # 2. Restamos 1 día para obtener la fecha de la sesión que queremos balancear (Ej: Lunes)
     fecha_ayer = (hoy - timedelta(days=1)).date()
     
-    print(f"Generando balance contable para la sesión del día anterior: {fecha_ayer}")
-
+    print(f"Generando balance contable para la sesión del dia anterior: {fecha_ayer}")
     df_todo   = pd.concat([df_resultado, df_pendientes_resueltos], ignore_index=True)
     df_balance = sim.construir_balance(
         df_todo,
         precios_cierre_sesion,
-        # fecha_inicio = datetime(2026, 5, 22).date()
         fecha_inicio = fecha_ayer
     )
     
+    # Si no hubo movimientos de hoy y ayer procesados, entonces pendiente queda vacio
     if not df_todo.empty and 'estado' in df_todo.columns:
-        # Filtrar solo pendientes si la columna existe y hay datos
         df_pendientes = df_todo[df_todo['estado'].isin(['PENDIENTE_SALIR', 'PENDIENTE_ENTRAR'])].copy()
     else:
-        print("⚠️ df_todo está vacío o no contiene la columna 'estado'. Generando df_pendientes vacío.")
-        # Creamos un DataFrame vacío con las columnas estructurales que exige tu proceso de DynamoDB abajo
+        print("El df df_todo está vacio. Generando df_pendientes vacio")
         df_pendientes = pd.DataFrame(columns=['Tickers Mapeados', 'Fila Noticia', 'estado'])
     
 
-    # ==============================================================================
-    # PROCESO 1: GUARDAR DF_PENDIENTES EN "pending_trade" (REEMPLAZAR TABLA ENTERA)
-    # ==============================================================================
+    # Guardo solo los movimientos pendientes de hoy en pending_trade
     NOMBRE_TABLA_PENDIENTES = "pending_trade"
 
-    # 1. Borrar la tabla antigua para asegurar que no queden registros pasados
+    # Borro los registros pasados de pending_trade
     try:
-        print(f"Eliminando tabla antigua '{NOMBRE_TABLA_PENDIENTES}'...")
+        print(f"Elimino tabla antigua '{NOMBRE_TABLA_PENDIENTES}'...")
         dynamodb_client.delete_table(TableName=NOMBRE_TABLA_PENDIENTES)
         waiter = dynamodb_client.get_waiter("table_not_exists")
         waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
     except dynamodb_client.exceptions.ResourceNotFoundException:
         pass
 
-    # 2. Recrear la tabla completamente limpia
-    print(f"Creando nueva tabla limpia '{NOMBRE_TABLA_PENDIENTES}'...")
+    # Recreo la tabla completamente limpia
+    print(f"Creo nueva tabla limpia '{NOMBRE_TABLA_PENDIENTES}'")
     dynamodb_client.create_table(
         TableName=NOMBRE_TABLA_PENDIENTES,
         KeySchema=[
@@ -1425,34 +1304,29 @@ def handler(event, context):
     waiter.wait(TableName=NOMBRE_TABLA_PENDIENTES)
     table_pendientes = dynamodb.Table(NOMBRE_TABLA_PENDIENTES)
 
-    # 3. Preparar y subir datos solo si el DataFrame NO está vacío
+    # Preparo y subo datos de operaciones pendiente si el df no esta vacio
     if df_pendientes.empty:
         print(
-            f"El dataframe 'df_pendientes' está vacío. La tabla '{NOMBRE_TABLA_PENDIENTES}' quedará activa pero sin registros."
+            f"El df 'df_pendientes' esta vacio. La tabla '{NOMBRE_TABLA_PENDIENTES}' quedara activa pero sin registros"
         )
     else:
         df_p_prep = df_pendientes.copy()
 
-        # Formatear columnas problemáticas (Fechas, NaT y NaN)
         for col in df_p_prep.columns:
-            # Detectar columnas de tipo fecha o marcas de tiempo
             if pd.api.types.is_datetime64_any_dtype(df_p_prep[col]):
                 df_p_prep[col] = (
                     df_p_prep[col].astype(str).replace(["NaT", "NaN", "nat", "nan"], None)
                 )
 
-        # Convertir floats a tipo Decimal compatible con DynamoDB via JSON
         df_p_json = df_p_prep.to_json(orient="records")
         items_pendientes = json.loads(df_p_json, parse_float=Decimal)
 
-        print(f"Subiendo {len(items_pendientes)} registros a {NOMBRE_TABLA_PENDIENTES}...")
+        print(f"Subo {len(items_pendientes)} registros a {NOMBRE_TABLA_PENDIENTES}...")
         with table_pendientes.batch_writer() as batch:
             for item in items_pendientes:
-                # Forzar tipos estrictos en las llaves primarias requeridas por AWS
                 item["Tickers Mapeados"] = str(item["Tickers Mapeados"])
                 item["Fila Noticia"] = int(item["Fila Noticia"])
 
-                # Filtro extremo: Elimina nulos, textos 'None', strings vacías o floats NaN remanentes
                 item_limpio = {
                     k: v
                     for k, v in item.items()
@@ -1462,45 +1336,36 @@ def handler(event, context):
                 }
 
                 batch.put_item(Item=item_limpio)
-        print("¡Tabla de pendientes actualizada con éxito!")
+        print("Tabla de pendientes actualizada con exito")
 
 
-    # ==============================================================================
-    # PROCESO 2: GUARDAR DF_BALANCE EN "daily_balance" (ACUMULAR REGISTROS)
-    # ==============================================================================
+    # Actualizo la tabla daily_balance con el balance de hoy, si existe
     NOMBRE_TABLA_BALANCE = "daily_balance"
     table_balance = dynamodb.Table(NOMBRE_TABLA_BALANCE)
 
     if df_balance.empty:
-        print("⚠️ Advertencia: 'df_balance' está vacío, omitiendo guardado contable.")
+        print("El df'df_balance' esta vacio, omitiendo guardado del balance diario")
     else:
         df_b_prep = df_balance.copy()
-
-        # Asegurar que la fecha contable sea texto plano
+        # Reparo la tabla
         df_b_prep["fecha"] = df_b_prep["fecha"].astype(str)
-
-        # Convertir la fila única a tipos Decimal
         df_b_json = df_b_prep.to_json(orient="records")
         items_balance = json.loads(df_b_json, parse_float=Decimal)
 
-        print(f"Acumulando registro de balance diario en '{NOMBRE_TABLA_BALANCE}'...")
+        print(f"Acumulando registro de balance diario en '{NOMBRE_TABLA_BALANCE}'")
         for item in items_balance:
             item["fecha"] = str(item["fecha"])
-
-            # Limpieza estándar de nulos
             item_limpio = {
                 k: v
                 for k, v in item.items()
                 if v is not None and str(v) not in ["None", "NaN", "nan"]
             }
 
-            # Inserta o sobreescribe el día actual sin alterar el historial contable previo
             table_balance.put_item(Item=item_limpio)
 
-        print(f"¡Balance del día {df_b_prep['fecha'].iloc[0]} guardado correctamente!")
+        print(f"Balance contable del dia {df_b_prep['fecha'].iloc[0]} guardado con exito")
         
-    # Retorno exitoso que requiere AWS Lambda
     return {
         'statusCode': 200,
-        'body': json.dumps('Simulación y persistencia completadas exitosamente.')
+        'body': json.dumps('Sistema trading completado con exito')
     }

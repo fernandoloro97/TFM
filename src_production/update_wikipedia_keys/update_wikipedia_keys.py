@@ -11,34 +11,36 @@ from groq import Groq
 from datetime import datetime
 from boto3.dynamodb.conditions import Attr
 
+# Manejo de actualizacion de la tabla en dynamodb llamada uptade_wikipedia_keys
 def handler(event, context):
-    # --- BLOQUE INICIAL: LEER DYNAMODB ---
+    # Confirguro el dynamodb
     dynamodb = boto3.resource('dynamodb')
-    # Tabla de origen de cambios
+    
+    # Creo la referencias a las tablas de interes
     table_changes = dynamodb.Table('clean_changes_sp500')
-    # Tabla de Wikipedia (tu 'update_wikipedia_keys')
     table_wiki = dynamodb.Table('update_wikipedia_keys')
 
-    # Lectura de las tablas para crear tus DataFrames iniciales
+    # Descargo solo los Addition de cambios en el SP500 y los paso a df
     res_changes = table_changes.scan(FilterExpression=Attr('Action').eq('Addition'))
     clean_changes_sp500 = pd.DataFrame(res_changes.get('Items', []))
     
+    # Descago todo y los paso a df
     res_wiki = table_wiki.scan()
     update_wikipedia_keys = pd.DataFrame(res_wiki.get('Items', []))
-
-    # --- TU CÓDIGO TAL CUAL (SIN TOCAR) ---
     
-    # Reviso los tickers nuevos
+    # Reviso y me guardo los nuevos tickers
     new_tickers = clean_changes_sp500[clean_changes_sp500["Action"] == "Addition"].reset_index(drop=True)
     new_tickers['Effective Date'] = pd.to_datetime(new_tickers['Effective Date'])
     today = pd.Timestamp.now().normalize()
     new_tickers = new_tickers[new_tickers['Effective Date'] <= today]
 
-    # Aquí usamos el df 'update_wikipedia_keys' que leímos de DynamoDB arriba
+    # Confirmo que nuevos ticker no esten en la tabla, porque puede ser que antes el ticker hubiese estado en el SP500
     real_new_tickers = new_tickers[~new_tickers['Ticker'].isin(update_wikipedia_keys['Ticker'])].reset_index(drop=True)
 
+    # Webscrapping a wikipedia
     HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+    # Obtengo la URL de cada empresa
     def get_wiki_url(company_name):
         r = requests.get("https://en.wikipedia.org/w/api.php", headers=HEADERS, params={
             "action": "query", "list": "search",
@@ -50,6 +52,7 @@ def handler(event, context):
         title = results[0]["title"].replace(" ", "_")
         return f"https://en.wikipedia.org/wiki/{title}"
 
+    # Webscrapeo las categorias de interes de cada URL
     def scrape_wikipedia_infobox(company_name):
         empty = {k: None for k in ["Wikipedia Url", "Founders", "Predecessor", "Key People", "Products",
                                 "Services", "Brands", "Divisions", "Subsidiaries"]}
@@ -101,7 +104,7 @@ def handler(event, context):
             print(f"  Error {company_name}: {e}")
             return empty
 
-
+    # Ejecuto el webscrapeo para solo los nuevos tickers
     rows = []
     total = len(real_new_tickers)
     for _, row in real_new_tickers.iterrows():
@@ -109,18 +112,21 @@ def handler(event, context):
         rows.append({"Ticker": row["Ticker"], "Company Name": row["Company Name"], **data})
         time.sleep(0.3)
 
+    # Creo que df de nuevos tickers con sus categorias
     new_wikipedia_keys = pd.DataFrame(rows, columns=[
         "Ticker", "Company Name", "Predecessor",
         "Products", "Services", "Brands", "Divisions", "Subsidiaries"
     ])
 
+    # Si existe ese df para nuevos tickers, ejecuto la limpieza correspondiente y subida de datos
     if not new_wikipedia_keys.empty:
+        
+        # Limpio y estandarizo los datos brutos webscrappeados
         def clean_names(text):
             if not isinstance(text, str):
                 return None
             text = re.sub(r"\[.*?\]", "", text)
             text = re.sub(r"\(.*?\)", "", text)
-            # Permite mayúsculas en medio: McCarthy, McGregor, DeNiro, O'Brien
             names = re.findall(r"[A-Z][a-zA-Z']+(?:\s[A-Z][a-zA-Z',.]+)+", text)
             if not names:
                 return None
@@ -128,7 +134,7 @@ def handler(event, context):
             unique_names = [n for n in names if not (n in seen or seen.add(n))]
             return ", ".join(unique_names)
     
-    
+        # Solo limpio
         def clean_garbage(text):
             if not isinstance(text, str):
                 return None
@@ -138,7 +144,7 @@ def handler(event, context):
             text = re.sub(r",\s*,", ",", text)
             return text.strip().strip(",").strip()
         
-        # df_wikipedia["Founders"]   = df_wikipedia["Founders"].apply(clean_names)
+        # Aplico la limpieza y estandarizado segun corresponda
         new_wikipedia_keys["Predecessor"]   = new_wikipedia_keys["Predecessor"].apply(clean_garbage)
         new_wikipedia_keys["Products"]   = new_wikipedia_keys["Products"].apply(clean_garbage)
         new_wikipedia_keys["Services"]   = new_wikipedia_keys["Services"].apply(clean_garbage)
@@ -146,29 +152,22 @@ def handler(event, context):
         new_wikipedia_keys["Divisions"]   = new_wikipedia_keys["Divisions"].apply(clean_garbage)
         new_wikipedia_keys["Subsidiaries"]   = new_wikipedia_keys["Subsidiaries"].apply(clean_garbage)
         
+        # Conteo de palabras unicas
         def get_unique_sorted_by_freq_multi(df, columns):
-            # 1. Unificamos todas las columnas seleccionadas en una sola serie
-            # .stack() convierte las columnas en una sola fila vertical ignorando NaNs
+ 
             combined_series = df[columns].stack().astype(str)
-        
-            # 2. Separamos por coma y aplanamos la lista
-            # split(", ") crea listas, luego el list comprehension las "aplana"
             all_items = [item.strip() for sublist in combined_series.str.split(",") for item in sublist]
-        
-            # 3. Contamos frecuencias
             counts = Counter(all_items)
         
-            # 4. Devolvemos solo las palabras (llaves) ordenadas por su conteo
             return [word for word, _ in counts.most_common()]
         
-        # Llamo a la funcion
+        # Ejecuto el conteo para productos y servicios
         problem_columns= ["Products", "Services"]
         keywords = get_unique_sorted_by_freq_multi(new_wikipedia_keys, problem_columns)
         
-        
+        # Para clasificar que es una palabra comun, utilizo un prompt en ingles de LLM
         client = Groq(api_key="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")
-        
-        
+        # Prompt para clasiicar
         def classify_batch(terms):
             numbered = "\n".join([f"{i+1}. {term}" for i, term in enumerate(terms)])
         
@@ -196,7 +195,7 @@ def handler(event, context):
             results = json.loads(text)
             return results
         
-        # Procesar en batches de 20 por si tienes muchas keywords
+        # Proceso por batches el prompt
         def classify_all(terms, batch_size=20):
             all_results = []
             for i in range(0, len(terms), batch_size):
@@ -205,42 +204,39 @@ def handler(event, context):
                 all_results.extend(results)
             return all_results
         
-        
+        # Guardo y transformo a df
         results = classify_all(keywords)
         common_words = pd.DataFrame(results)
         
-        # Crear un dict de lookup rápido
+        # Creo un diccionario de las palabras comunes
         proper_noun_set = set(
             common_words[common_words['is_proper_noun'] == True]['term'].tolist()
         )
         
+        # Me quedo solo con los nombres propios
         def filter_proper_nouns(cell_value):
-            """Filtra una celda conservando solo los nombres propios"""
             if pd.isna(cell_value) or cell_value == 'None':
                 return cell_value
         
-            # Separar por coma (ajusta el separador si usas otro)
             terms = [t.strip() for t in str(cell_value).split(',')]
-        
-            # Conservar solo los que son nombres propios
             filtered = [t for t in terms if t in proper_noun_set]
         
-            # Devolver None si no queda nada, o los términos unidos
             return ', '.join(filtered) if filtered else None
         
+        # Filtro los nombres propios y guardo si sufieron cambios 
         df_review = new_wikipedia_keys[['Ticker', 'Company Name', 'Products', 'Services']].copy()
         df_review['Products_clean'] = new_wikipedia_keys['Products'].apply(filter_proper_nouns)
         df_review['Services_clean'] = new_wikipedia_keys['Services'].apply(filter_proper_nouns)
         
-        # Columnas de cambios
         df_review['Products_changed'] = df_review['Products'] != df_review['Products_clean']
         df_review['Services_changed'] = df_review['Services'] != df_review['Services_clean']
         
-        # Reordenar
+        # Reordeno para comparar mas rapido
         df_review = df_review[['Ticker', 'Company Name',
                                 'Products', 'Products_clean', 'Products_changed',
                                 'Services', 'Services_clean', 'Services_changed']]
         
+        # Actualizo los productos y servicios, mostrando solo los que son nombres propios, el resto NaN
         df_review_changed = df_review[
             df_review['Products_changed'] | df_review['Services_changed']
         ]
@@ -248,6 +244,7 @@ def handler(event, context):
         new_wikipedia_keys['Products'] = df_review['Products_clean']
         new_wikipedia_keys['Services'] = df_review['Services_clean']
         
+        # Limpio los nombres de las empresas
         def clean_company_name(name):
             if not isinstance(name, str):
                 return name, ""
@@ -285,51 +282,49 @@ def handler(event, context):
             cleaned = cleaned.strip().strip(",").strip()
             return cleaned, ", ".join(removed) if removed else ""
         
-        # Solo cálculo temporal, no modifica df_wikipedia
+        # Copia de seguridad
         df_review_names = new_wikipedia_keys[['Company Name']].copy()
         
+        # Aplico la limpieza para crear dos columnas: nombre limpio y lo que se limpio
         df_review_names[['Company Name Clean', 'Removed']] = df_review_names['Company Name'].apply(
             lambda x: pd.Series(clean_company_name(x))
         )
         
+        # Creo otra columna que me dice si hubo cambios en el nombre
         df_review_names['changed'] = df_review_names['Company Name'] != df_review_names['Company Name Clean']
         
-        # 1. Creamos la serie con los datos que quieres traer
+        # Insert los nombres limpios al df principal
         clean_names = df_review_names['Company Name Clean']
-        
-        # 2. Insertamos en la posición 2 (que es la tercera columna)
-        # Sintaxis: df.insert(posicion, nombre_columna, valores)
         new_wikipedia_keys.insert(2, 'Company Name Clean', clean_names)
         
-        # Tus columnas de interés
+        # Reviso si en el webscrappeo se leyo mal y falta comas, teniendo 2 o mas elementos en uno solo
         columns = [
             'Predecessor', 'Products', 'Services',
             'Brands', 'Divisions', 'Subsidiaries'
         ]
         
+        # Reviso elementos de mas de 3 palabras sin comas y lo marco como sospechoso
         def is_suspicious(text):
             if pd.isna(text):
                 return False
         
             texto = str(text).strip()
-            # Condición: Más de 2 palabras (split genera una lista)
-            # Y que NO contenga ninguna coma
             palabras = text.split()
+            
             if len(palabras) > 3 and ',' not in text:
                 return True
             return False
         
-        # Aplicamos el filtro y creamos una nueva columna indicadora
+        # Aplico el filtro de sospecha y lo guardo en una columna
         new_wikipedia_keys['Need Revision'] = new_wikipedia_keys[columns].apply(lambda row: any(is_suspicious(val) for val in row), axis=1)
         
-        # Ver solo las filas que cumplen tu criterio
-        # rows_to_correct = new_wikipedia_keys[new_wikipedia_keys['Need_Revision']]
-        
+        # Seleccion columnas con elementos sospechosos
         columnas = [
             'Predecessor', 'Products', 'Services',
             'Brands', 'Divisions', 'Subsidiaries'
         ]
         
+        # Cojo la columna del elemeto sospechoso 
         def get_incorrect_columns(row):
             cols_sospechosas = []
             for col in columnas:
@@ -337,25 +332,22 @@ def handler(event, context):
                 if pd.isna(row[col]) or texto == "" or texto.lower() == 'nan':
                     continue
         
-                # Tu lógica: Más de 4 palabras y sin comas
                 palabras = texto.split()
                 if len(palabras) > 3 and ',' not in texto:
                     cols_sospechosas.append(col)
         
-            # Devolvemos la lista de columnas (o None si está limpia)
             return cols_sospechosas if cols_sospechosas else None
         
-        # Creamos la nueva columna con la lista de culpables
+        # Creo una columna para columnas con elementos sospechosos
         new_wikipedia_keys['Incorrect Columns'] = new_wikipedia_keys.apply(get_incorrect_columns, axis=1)
-        
-        # Filtramos las que no son None
+        # Me quedo con las filas que si tiene columnas con elementos sospechosos
         rows_to_correct = new_wikipedia_keys[new_wikipedia_keys['Incorrect Columns'].notna()]
         
-        
+        # Aplico un prompt en ingles de LLM para comprobar si realmente los elementos sospechosos son reales y si son, corregirlos
         client = Groq(api_key="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")
         
+        # Prompt para corregir los elementos sospechosos
         def fix_merged_keywords(row, suspicious_columns):
-            """Para una fila sospechosa, pide al LLM que corrija las columnas problemáticas"""
         
             corrections = {}
         
@@ -385,7 +377,7 @@ def handler(event, context):
         }}
         """
                 response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",  #llama-3.3-70b-versatile llama-3.1-8b-instant
+                    model="llama-3.1-8b-instant",  
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=200,
                     temperature=0
@@ -399,9 +391,9 @@ def handler(event, context):
         
         results = []
         
+        # Aplico el promot para las filas sospechosas
         for idx, row in rows_to_correct.iterrows():
-            # Parsear las columnas sospechosas de tu columna 'Columnas_Errores'
-            suspicious_cols = row['Incorrect Columns']  # ya tienes esto como lista
+            suspicious_cols = row['Incorrect Columns'] 
         
             corrections = fix_merged_keywords(row, suspicious_cols)
         
@@ -415,24 +407,23 @@ def handler(event, context):
                     'is_merged': result['is_merged'],
                     'reason': result['reason']
                 })
-        
+        # Lo guardo en df
         df_corrections = pd.DataFrame(results)
         
-        # Aplicar correcciones directamente sobre df_wikipedia
+        # Aplico las correcciones directo al df principal
         for _, fix in df_corrections.iterrows():
             new_wikipedia_keys.loc[fix['index'], fix['column']] = fix['corrected']
         
         new_wikipedia_keys = new_wikipedia_keys.drop(columns=[ "Need Revision", "Incorrect Columns"])
         
 
-        # --- BLOQUE FINAL: ACTUALIZAR DYNAMODB ---
-        # Solo se ejecuta si new_wikipedia_keys no está vacío
+        # Actualizo la tabla del dynamodb
         for _, row in new_wikipedia_keys.iterrows():
-            # Convertimos fila a dict y filtramos nulos para que DynamoDB no proteste
             item = {k: v for k, v in row.to_dict().items() if pd.notna(v) and v != ""}
             table_wiki.put_item(Item=item)
         
         return {"status": "success", "added": len(new_wikipedia_keys)}
     
     else:
+        # Si no hay nuevos tickers, no actualizo la tabla
         return {"status": "success", "message": "new_wikipedia_keys estaba vacío, nada que actualizar"}
