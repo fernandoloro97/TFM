@@ -4,6 +4,7 @@ import time
 import json
 import boto3
 import requests
+from bs4 import BeautifulSoup
 
 # Instancio el dyanmodb
 dynamodb = boto3.resource("dynamodb")
