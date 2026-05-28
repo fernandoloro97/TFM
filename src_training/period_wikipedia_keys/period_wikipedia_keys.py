@@ -160,8 +160,16 @@ new_wikipedia_keys["Subsidiaries"]   = new_wikipedia_keys["Subsidiaries"].apply(
 # Conteo de palabras unicas
 def get_unique_sorted_by_freq_multi(df, columns):
 
-    combined_series = df[columns].stack().astype(str)
-    all_items = [item.strip() for sublist in combined_series.str.split(",") for item in sublist]
+    combined_series = df[columns].stack().dropna()
+    combined_series = combined_series.astype(str)
+    combined_series = combined_series[~combined_series.isin(['nan', 'None', ''])]
+    
+    all_items = [
+        item.strip() 
+        for sublist in combined_series.str.split(",") 
+        if isinstance(sublist, list) 
+        for item in sublist
+    ]
     all_items = [item for item in all_items if item.lower() != 'nan' and item != '']
     counts = Counter(all_items)
 
