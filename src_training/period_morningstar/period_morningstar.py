@@ -160,7 +160,8 @@ columnas_interes = ["Digrin Company Name", "Sector", "Industry"]
 sectores_digrin_encontrados[sectores_digrin_encontrados[columnas_interes].isna().any(axis=1)]
 
 # Añado sus datos manualmente, porque es dificil encontrarlo 
-df_sectores.loc[142, ['Digrin Company Name','Sector', 'Industry']] = ['Concho Resources', 'Energy', 'Oil & Gas E&P']
+# df_sectores.loc[142, ['Digrin Company Name','Sector', 'Industry']] = ['Concho Resources', 'Energy', 'Oil & Gas E&P']
+df_sectores.loc[df_sectores['Ticker'] == 'CXO', ['Digrin Company Name', 'Sector', 'Industry']] = ['Concho Resources', 'Energy', 'Oil & Gas E&P']
 df_sectores.drop(columns=['Yahoo Company Name', 'Digrin Company Name'], inplace=True)
 
 # Reemplazo "Insurance Brokers" por "Insurance - Brokers" porque daba error y error por una tonteria
@@ -179,6 +180,7 @@ col = df_merged.pop('Industry Group')
 df_merged.insert(3, 'Industry Group', col)
 
 print(df_merged.isna().sum())
+print(df_merged[df_merged.isna().any(axis=1)])
 
 # Conecto con la tabla de period_companys_morningstar_sectors
 tabla_destino = dynamodb.Table('period_companys_morningstar_sectors')
