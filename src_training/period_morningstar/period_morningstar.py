@@ -178,6 +178,8 @@ df_merged = df_sectores.merge(
 col = df_merged.pop('Industry Group')
 df_merged.insert(3, 'Industry Group', col)
 
+print(df_merged.isna().sum())
+
 # Conecto con la tabla de period_companys_morningstar_sectors
 tabla_destino = dynamodb.Table('period_companys_morningstar_sectors')
 
