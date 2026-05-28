@@ -65,36 +65,47 @@
 #           AWS_DEFAULT_REGION: us-east-1
 #         run: python src_training/period_wikipedia_keys/period_wikipedia_keys.py
 
-name: Ejecutar Morningstar S&P 500
+# name: Ejecutar Morningstar S&P 500
+
+# on:
+#   # Se ejecuta automáticamente al subir cambios a la rama main
+#   push:
+#     branches:
+#       - main
+  
+#   # Permite ejecutarlo manualmente desde la pestaña Actions de GitHub
+#   workflow_dispatch: 
+
+# jobs:
+#   ejecutar-script:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.11'
+
+#       - name: Install dependencies
+#         run: |
+#           pip install yfinance pandas boto3
+
+#       - name: Run Script
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+#         run: python src_training/period_morningstar/period_morningstar.py
+
 
 on:
-  # Se ejecuta automáticamente al subir cambios a la rama main
-  push:
-    branches:
-      - main
-  
-  # Permite ejecutarlo manualmente desde la pestaña Actions de GitHub
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
-  ejecutar-script:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install yfinance pandas boto3
-
-      - name: Run Script
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-        run: python src_training/period_morningstar/period_morningstar.py
+    - name: Checkout Code
+      run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ
