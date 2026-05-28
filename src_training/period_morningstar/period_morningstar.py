@@ -53,7 +53,7 @@ official_morningstar = official_morningstar.astype(str)
 
         
 # Me quedo con Ticker y company de sp500_in_out
-ticker_name =  sp500_in_out.iloc[:,:2].copy()
+ticker_name = sp500_in_out[["Ticker", "Company Name"]].copy()
 # Para leer sectores de Yahoo Finance, necesito adaptar el nombre de 2 tickers
 ticker_name["Ticker"] = ticker_name["Ticker"].replace({
     "BF.B": "BF-B",
