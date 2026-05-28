@@ -373,6 +373,10 @@ fin_periodo = pd.to_datetime("2025-12-31")
 
 df_hist = sp500_cambios_estructurado.copy()
 
+# Aseguro formato datetime de fechas
+df_hist["Date Added"] = pd.to_datetime(df_hist["Date Added"], errors="coerce")
+df_hist["Date Removed"] = pd.to_datetime(df_hist["Date Removed"], errors="coerce")
+
 # No me interesa empresas que entraron despues del periodo
 df_hist = df_hist[
     (df_hist["Date Added"].isna()) |
