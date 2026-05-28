@@ -102,20 +102,17 @@ df_sectores_NA = df_sectores[df_sectores.isna().any(axis=1)]
 # Procedo con la busqueda de tickers sin sectores
 tickers_sin_sector = df_sectores_NA["Ticker"]
 
+SCRAPER_API_KEY = "8a3a84f0ed4b67f4dc88ff958051ce2c"
+
 # Otra fuente bastan fiable para estos tickers faltantes que son historicos es Digrin
 def get_digrin_data(ticker):
     url = f"https://www.digrin.com/stocks/detail/{ticker}/"
+    proxy_url  = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={url}"
     # headers = {"User-Agent": "Mozilla/5.0"}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-    }
-    
+
     try:
-        r = requests.get(url, headers=headers, timeout=10)
+        # r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(proxy_url, timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
         
         if r.status_code == 404 or soup.find("h2", string=lambda t: t and "404" in t):
