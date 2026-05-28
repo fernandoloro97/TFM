@@ -7,8 +7,9 @@ import boto3
 # Instancio el dyanmodb
 dynamodb = boto3.resource("dynamodb")
 tabla_sp500_in_out = dynamodb.Table("sp500_in_out")
+tabla_morningstar = dynamodb.Table('official_morningstar')
 
-# Descargo la tabla
+# Descargo la tabla de sp500_in_out
 items = []
 response = tabla_sp500_in_out.scan()
 items.extend(response.get("Items", []))
@@ -18,6 +19,15 @@ while "LastEvaluatedKey" in response:
     response = tabla_sp500_in_out.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
     items.extend(response.get("Items", []))
 
+# Descargo la tabla de morningstar
+items_morningstar = []
+response_ms = tabla_morningstar.scan()
+items_morningstar.extend(response_ms.get("Items", []))
+
+while "LastEvaluatedKey" in response_ms:
+    response_ms = tabla_morningstar.scan(ExclusiveStartKey=response_ms["LastEvaluatedKey"])
+    items_morningstar.extend(response_ms.get("Items", []))
+    
 # Transformo la tabla a df
 sp500_in_out = pd.DataFrame(items)
 
@@ -35,7 +45,12 @@ for col in string_cols:
     if col in sp500_in_out.columns:
         sp500_in_out[col] = sp500_in_out[col].astype(str)
         
-        
+# Transformo la tabla a df
+official_morningstar = pd.DataFrame(items_morningstar)
+
+# Convierto el df de mornigstar a string
+official_morningstar = official_morningstar.astype(str)
+
         
 # Me quedo con Ticker y company de sp500_in_out
 ticker_name =  sp500_in_out.iloc[:,:2].copy()
@@ -145,18 +160,25 @@ df_sectores.drop(columns=['Yahoo Company Name', 'Digrin Company Name'], inplace=
 df_sectores['Industry'] = df_sectores['Industry'].replace('Insurance Brokers', 'Insurance - Brokers')
 
 
-
-
-
-
-
-# Merge y reordenamiento en un solo bloque
+# Uno los sectores e industrias obtenido con los oficiales de Morningstar para conseguir los grupos industriales
 df_merged = df_sectores.merge(
-    df_ref[['Sector', 'Industry Group', 'Industry']], 
+    official_morningstar[['Sector', 'Industry Group', 'Industry']], 
     on=['Sector', 'Industry'], 
     how='left'
 )
 
-# Mover Industry Group a la cuarta posición (índice 3)
+# Inserto los grupos industriales en tercer posicion
 col = df_merged.pop('Industry Group')
 df_merged.insert(3, 'Industry Group', col)
+
+# Conecto con la tabla de period_companys_morningstar_sectors
+tabla_destino = dynamodb.Table('period_companys_morningstar_sectors')
+
+# Subo el df df_merged a dicha tabla
+with tabla_destino.batch_writer() as batch:
+    for _, fila in df_merged.iterrows():
+        item = fila.to_dict()
+        item['Ticker'] = str(item['Ticker']).strip()
+        batch.put_item(Item=item)
+
+print("Tabla period_companys_morningstar_sectors subida")
