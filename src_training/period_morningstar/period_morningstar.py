@@ -90,7 +90,7 @@ df_sectores = pd.merge(ticker_name, sectores_empresa, on="Ticker", how="left")
 sectores_yahoo_encontrados = df_sectores[~df_sectores.isna().any(axis=1)]
 
 sectores_yahoo_encontrados['Yahoo Comparison'] = (sectores_yahoo_encontrados['Company Name'].str.split().str[0].str.lower() == 
-                     sectores_yahoo_encontrados['Yahoo Company Name'].str.split().str[0].str.lower())
+                                                  sectores_yahoo_encontrados['Yahoo Company Name'].str.split().str[0].str.lower())
 
 
 # Reviso los NaN de datos que no se encontrar en Yahoo Finance 
