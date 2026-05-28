@@ -41,6 +41,7 @@ sp500_in_out["Date Removed"] = pd.to_datetime(
     sp500_in_out["Date Removed"], errors="coerce"
 )
 
+
 # Los tickers, company y duration aseguro el formato string
 string_cols = ["Ticker", "Company Name", "Duration"]
 for col in string_cols:
