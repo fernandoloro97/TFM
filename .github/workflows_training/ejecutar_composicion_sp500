@@ -8,6 +8,7 @@ on:
   
   # Permite ejecutarlo manualmente desde la pestaña Actions de GitHub
   workflow_dispatch: 
+  
 
 jobs:
   ejecutar-script:
