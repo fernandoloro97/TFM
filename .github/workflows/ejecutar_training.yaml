@@ -175,18 +175,12 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libgomp1
-
-      - name: Install Trading AI and Data Dependencies
-        run: |
           python -m pip install --upgrade pip
           
-          # 1. Instalamos PyTorch versión CPU (ahorra 4GB de descarga y RAM en el runner)
-          pip install torch --index-url https://pytorch.org --no-cache-dir
-          
-          # 2. Instalamos el resto de librerías de Machine Learning y AWS necesarias
-          pip install pandas numpy boto3 scikit-learn lightgbm xgboost --no-cache-dir
+          # Instalación limpia que descarga la versión ligera (CPU) de PyTorch sin fallar
+          pip install pandas numpy boto3 scikit-learn lightgbm xgboost \
+                      torch --extra-index-url https://pytorch.org --no-cache-dir
+
 
       - name: Run Trading Training and Inference Script
         env:
