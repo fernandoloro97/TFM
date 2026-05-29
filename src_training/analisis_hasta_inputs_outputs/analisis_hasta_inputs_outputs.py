@@ -30,47 +30,121 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from transformers import AutoTokenizer, AutoModel
 from torch.utils.data import DataLoader, TensorDataset
+from concurrent.futures import ThreadPoolExecutor
 
-
-
-# Configuracion de AWS 
+# Configuración de AWS
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 s3 = boto3.client('s3')
 
-# Transformo la tabla de dynmodb a dataframe
 def get_table_df(table_name):
+    """Descarga una tabla optimizando la memoria RAM de forma inmediata."""
+    print(f"[DynamoDB] Iniciando descarga de: {table_name}", flush=True)
     table = dynamodb.Table(table_name)
-    response = table.scan()
-    data = response['Items']
     
-    # Manejo la contiuidad para tablas grandes
+    response = table.scan()
+    chunks = [pd.DataFrame(response['Items'])]
+    total_filas = len(response['Items'])
+    
     while 'LastEvaluatedKey' in response:
         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-        data.extend(response['Items'])
+        if response['Items']:
+            chunks.append(pd.DataFrame(response['Items']))
+            total_filas += len(response['Items'])
+            # Imprime progreso para que veas en GitHub Actions que el script sigue vivo
+            if total_filas % 50000 == 0:
+                print(f"  -> {table_name}: {total_filas} filas procesadas...", flush=True)
     
-    return pd.DataFrame(data)
+    print(f"[OK] Finalizada: {table_name} ({total_filas} filas)", flush=True)
+    # Concatenamos los bloques eficientemente
+    return pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
 
-# Leo tablas de interes del dynamodb
-composicion_sp500_actualizado = get_table_df('sp500_period_historic')
-wikipedia_actualizado = get_table_df('period_wikipedia_keys')
-morningstar = get_table_df('official_morningstar')
-empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
-inputs_texto_brutos = get_table_df('inputs_textos')
-precios_cierre_sesion = (
-    get_table_df('period_sesion_close_prices')
-    .assign(Date=lambda x: pd.to_datetime(x['Date']))
-    .set_index('Date')
-    .sort_index()
-)
-precios_cierre_sesion = precios_cierre_sesion.astype(float)
+# --- DESCARGA EN PARALELO (El truco maestro) ---
+tablas_a_descargar = [
+    'sp500_period_historic',
+    'period_wikipedia_keys',
+    'official_morningstar',
+    'period_companys_morningstar_sectors',
+    'inputs_textos',
+    'period_sesion_close_prices',
+    'period_sp500_sesion_close_prices'
+]
 
-sp500_precio_sesion = (
-    get_table_df('period_sp500_sesion_close_prices')
-    .assign(Date=lambda x: pd.to_datetime(x['Date']))
-    .set_index('Date')
-    .sort_index()
-)
-sp500_precio_sesion['SP500'] = sp500_precio_sesion['SP500'].astype(float)
+print("Iniciando descarga masiva multihilo...", flush=True)
+resultados = {}
+
+# Ejecutamos la descarga de las tablas simultáneamente usando hilos
+with ThreadPoolExecutor(max_workers=4) as executor:
+    futures = {executor.submit(get_table_df, name): name for name in tablas_a_descargar}
+    for future in futures:
+        nombre_tabla = futures[future]
+        resultados[nombre_tabla] = future.result()
+
+print("¡Todas las tablas han sido descargadas! Procesando dataframes...", flush=True)
+
+# --- ASIGNACIÓN Y POST-PROCESAMIENTO ---
+composicion_sp500_actualizado = resultados['sp500_period_historic']
+wikipedia_actualizado = resultados['period_wikipedia_keys']
+morningstar = resultados['official_morningstar']
+empresas_sectores_morningstar = resultados['period_companys_morningstar_sectors']
+inputs_texto_brutos = resultados['inputs_textos']
+
+# Procesamiento rápido de precios_cierre_sesion
+df_precios = resultados['period_sesion_close_prices']
+if not df_precios.empty:
+    df_precios['Date'] = pd.to_datetime(df_precios['Date'])
+    precios_cierre_sesion = df_precios.set_index('Date').sort_index().apply(pd.to_numeric, errors='coerce')
+else:
+    precios_cierre_sesion = pd.DataFrame()
+
+# Procesamiento rápido de sp500_precio_sesion
+df_sp500 = resultados['period_sp500_sesion_close_prices']
+if not df_sp500.empty:
+    df_sp500['Date'] = pd.to_datetime(df_sp500['Date'])
+    sp500_precio_sesion = df_sp500.set_index('Date').sort_index()
+    if 'SP500' in sp500_precio_sesion.columns:
+        sp500_precio_sesion['SP500'] = pd.to_numeric(sp500_precio_sesion['SP500'], errors='coerce')
+else:
+    sp500_precio_sesion = pd.DataFrame()
+
+print("Procesamiento completado. Listo para el entrenamiento.", flush=True)
+# # Configuracion de AWS 
+# dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+# s3 = boto3.client('s3')
+
+# # Transformo la tabla de dynmodb a dataframe
+# def get_table_df(table_name):
+#     table = dynamodb.Table(table_name)
+#     response = table.scan()
+#     data = response['Items']
+    
+#     # Manejo la contiuidad para tablas grandes
+#     while 'LastEvaluatedKey' in response:
+#         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+#         data.extend(response['Items'])
+    
+#     return pd.DataFrame(data)
+
+# # Leo tablas de interes del dynamodb
+# composicion_sp500_actualizado = get_table_df('sp500_period_historic')
+# wikipedia_actualizado = get_table_df('period_wikipedia_keys')
+# morningstar = get_table_df('official_morningstar')
+# empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
+# inputs_texto_brutos = get_table_df('inputs_textos')
+# precios_cierre_sesion = (
+#     get_table_df('period_sesion_close_prices')
+#     .assign(Date=lambda x: pd.to_datetime(x['Date']))
+#     .set_index('Date')
+#     .sort_index()
+# )
+# precios_cierre_sesion = precios_cierre_sesion.astype(float)
+
+# sp500_precio_sesion = (
+#     get_table_df('period_sp500_sesion_close_prices')
+#     .assign(Date=lambda x: pd.to_datetime(x['Date']))
+#     .set_index('Date')
+#     .sort_index()
+# )
+# sp500_precio_sesion['SP500'] = sp500_precio_sesion['SP500'].astype(float)
 
 
 # Descargo mensualmente las noticias del New York Times
