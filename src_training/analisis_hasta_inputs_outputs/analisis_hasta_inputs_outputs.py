@@ -55,119 +55,60 @@ wikipedia_actualizado = get_table_df('period_wikipedia_keys')
 morningstar = get_table_df('official_morningstar')
 empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
 inputs_texto_brutos = get_table_df('inputs_textos')
-# precios_cierre_sesion = (
-#     get_table_df('period_sesion_close_prices')
-#     .assign(Date=lambda x: pd.to_datetime(x['Date']))
-#     .set_index('Date')
-#     .sort_index()
-# )
-# precios_cierre_sesion = precios_cierre_sesion.astype(float)
-
-# sp500_precio_sesion = (
-#     get_table_df('period_sp500_sesion_close_prices')
-#     .assign(Date=lambda x: pd.to_datetime(x['Date']))
-#     .set_index('Date')
-#     .sort_index()
-# )
-# sp500_precio_sesion['SP500'] = sp500_precio_sesion['SP500'].astype(float)
 
 
-# Descargo mensualmente las noticias del New York Times
-def procesar_mes(year, month):
-    path = f"nyt_noticias/{year}/{year}_{month:02d}.json"
+# # Descargo mensualmente las noticias del New York Times
+# def procesar_mes(year, month):
+#     path = f"nyt_noticias/{year}/{year}_{month:02d}.json"
     
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+#     with open(path, 'r', encoding='utf-8') as f:
+#         data = json.load(f)
     
-    df = pd.json_normalize(data)
+#     df = pd.json_normalize(data)
     
-    # Filtro solo articulos
-    df = df[df["document_type"].str.lower() == "article"].copy()
+#     # Filtro solo articulos
+#     df = df[df["document_type"].str.lower() == "article"].copy()
 
-    df = df[["pub_date", "section_name", "headline.main", "abstract"]]
+#     df = df[["pub_date", "section_name", "headline.main", "abstract"]]
     
-    # Ajusto la hora a Nueva Tork
-    df["Date"] = (
-        pd.to_datetime(df["pub_date"], utc=True, format='ISO8601')
-        .dt.tz_convert(ZoneInfo("America/New_York"))
-        .dt.tz_localize(None)
-    )
+#     # Ajusto la hora a Nueva Tork
+#     df["Date"] = (
+#         pd.to_datetime(df["pub_date"], utc=True, format='ISO8601')
+#         .dt.tz_convert(ZoneInfo("America/New_York"))
+#         .dt.tz_localize(None)
+#     )
     
-    df = df.drop(columns=["pub_date"])
+#     df = df.drop(columns=["pub_date"])
     
-    return df
+#     return df
 
-# Traigo los meses a procesar para todo el periodo de analisis
-meses_a_procesar = []
-for year in range(2021, 2026):
-    for month in range(1, 13):
-        meses_a_procesar.append((year, month))
-meses_a_procesar.append((2026, 1))
+# # Traigo los meses a procesar para todo el periodo de analisis
+# meses_a_procesar = []
+# for year in range(2021, 2026):
+#     for month in range(1, 13):
+#         meses_a_procesar.append((year, month))
+# meses_a_procesar.append((2026, 1))
 
-# Teniendo todos los meses, ahora si ejecuto para descargar las noticias
-dfs = []
-for year, month in meses_a_procesar:
-    print(f"Procesando {year}/{month:02d}", end=" ")
-    df_mes = procesar_mes(year, month)
-    print(f"{len(df_mes)} artículos.")
-    dfs.append(df_mes)
+# # Teniendo todos los meses, ahora si ejecuto para descargar las noticias
+# dfs = []
+# for year, month in meses_a_procesar:
+#     print(f"Procesando {year}/{month:02d}", end=" ")
+#     df_mes = procesar_mes(year, month)
+#     print(f"{len(df_mes)} artículos.")
+#     dfs.append(df_mes)
 
-# Uno todos los meses
-noticias_NYT = pd.concat(dfs, ignore_index=True)
+# # Uno todos los meses
+# noticias_NYT = pd.concat(dfs, ignore_index=True)
 
-# Renombro as columnas
-noticias_NYT = noticias_NYT.rename(columns={
-    "section_name": "Section",
-    "headline.main": "Title",
-    "abstract": "Content"
-})
+# # Renombro as columnas
+# noticias_NYT = noticias_NYT.rename(columns={
+#     "section_name": "Section",
+#     "headline.main": "Title",
+#     "abstract": "Content"
+# })
 
-# Reordenar columnas
-noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
-
-# Filtro el rango final
-noticias_NYT = noticias_NYT[
-    (noticias_NYT["Date"] >= "2021-01-01 00:00:00") &
-    (noticias_NYT["Date"] < "2026-01-01 00:00:00")
-]
-
-# Ordenar por fecha
-noticias_NYT = noticias_NYT.sort_values("Date").reset_index(drop=True)
-print(f"\n Total articulos descargados: {len(noticias_NYT)}")
-
-# Elimino las filas con NaN
-noticias_NYT = noticias_NYT.dropna(subset=['Section', 'Title'])
-
-# Reviso  duplicados
-duplicate_news = noticias_NYT[noticias_NYT.duplicated(subset=["Title", "Content"], keep=False)]
-
-# Elimino los duplicados manteniendo solo la primera fila encontrada
-unique_news = noticias_NYT.drop_duplicates(subset=["Title", "Content"], keep='first').reset_index(drop=True)
-
-# Lista de sección si rigos financiero
-black_list = [
-    'Crosswords & Games', 'Gameplay', 'Movies', 'Arts', 'Theater', 'Books',
-    'Book Review', 'Briefing', 'Today’s Paper', 'Times Insider', 'Corrections',
-    'Admin', 'Reader Center', 'Homepage', 'Video', 'Multimedia/Photos',
-    'The Learning Network', 'Education', 'Parenting', 'Well', 'At Home',
-    'Smarter Living', 'Neediest Cases', 'Giving', 'Sports', 'Obituaries',
-    'Weather', 'Travel', 'Podcasts', 'En español', 'en Español', 'New York',
-    'International Home', 'Lens', 'Universal', 'Home & Garden'
-]
-
-# Quito las noticias ruidosas
-relevant_last_news = unique_news[~unique_news['Section'].isin(black_list)]
-
-# Reseteo indice
-relevant_last_news = relevant_last_news.reset_index(drop=True)
-
-# Creo una nueva columna: seccion + titulo + contenido
-relevant_last_news["Full Text"] = (
-    "[SECTION] " + relevant_last_news["Section"] + "\n" +
-    "[TITLE] " + relevant_last_news["Title"] + "\n" +
-    "[CONTENT] " + relevant_last_news["Content"]
-)
-
+# # Reordenar columnas
+# noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
 
 
 # Creo una variable global para guardar despues el resultado final de todo el proceso lento
@@ -176,8 +117,150 @@ inputs_gramatical_final = None
 # Controlo el tiempo de ejecucion
 def proceso_lento():
     global inputs_gramatical_final  # Permite guardar el resultado hacia afuera
-    print("Inicio el mapeo, analisis gramtical y limpieza para generar los inputs textuales")
+    # Tu API KEY de New York Times
+    API_KEY = "1sO8gR66gfd7wAU8HaGYxqDMGhROZH0VsLMBY7WEXzjF6VgV"
 
+    def obtener_datos_mes_en_memoria(year, month, reintentos=3):
+        """Consulta la API de NYT y procesa los datos directamente en un DataFrame."""
+        url = f"https://api.nytimes.com/svc/archive/v1/{year}/{month}.json"
+        params = {"api-key": API_KEY}
+        
+        for intento in range(reintentos):
+            try:
+                r = requests.get(url, params=params, timeout=30)
+                
+                if r.status_code == 200:
+                    docs = r.json()["response"]["docs"]
+                    if not docs:
+                        return pd.DataFrame()
+                    
+                    # Convertimos la respuesta cruda directamente a un DataFrame
+                    df = pd.json_normalize(docs)
+                    
+                    # Aplicamos tus filtros y transformaciones directamente
+                    if "document_type" in df.columns:
+                        df = df[df["document_type"].str.lower() == "article"].copy()
+                    
+                    # Validamos que existan las columnas necesarias para evitar errores
+                    columnas_necesarias = ["pub_date", "section_name", "headline.main", "abstract"]
+                    if not all(col in df.columns for col in columnas_necesarias):
+                        return pd.DataFrame()
+                    
+                    df = df[columnas_necesarias]
+                    
+                    # Ajustamos la hora a Nueva York y eliminamos zona horaria para normalizar
+                    df["Date"] = (
+                        pd.to_datetime(df["pub_date"], utc=True, format='ISO8601')
+                        .dt.tz_convert(ZoneInfo("America/New_York"))
+                        .dt.tz_localize(None)
+                    )
+                    df = df.drop(columns=["pub_date"])
+                    
+                    return df
+                    
+                elif r.status_code == 429:
+                    print(f"  Rate limit alcanzado. Esperando 60s...")
+                    time.sleep(60)
+                else:
+                    print(f"  Error {r.status_code} en {year}/{month}. Intento {intento+1}/{reintentos}")
+                    time.sleep(10)
+            except requests.exceptions.RequestException as e:
+                print(f"  Excepción en {year}/{month}: {e}. Intento {intento+1}/{reintentos}")
+                time.sleep(10)
+                
+        return pd.DataFrame() # Retorna DataFrame vacío si fallaron todos los intentos
+
+    # --- Generar la lista de meses a procesar (2021 a 2025 completo + Enero 2026) ---
+    meses_a_procesar = []
+    for year in range(2021, 2026):
+        for month in range(1, 13):
+            meses_a_procesar.append((year, month))
+    meses_a_procesar.append((2026, 1))
+
+    total_meses = len(meses_a_procesar)
+    dfs_acumulados = []
+
+    print(f"Iniciando descarga en memoria de {total_meses} meses desde la API...", flush=True)
+
+    for i, (year, month) in enumerate(meses_a_procesar, start=1):
+        print(f"[{i}/{total_meses}] Procesando {year}/{month:02d}...", end=" ", flush=True)
+        
+        df_mes = obtener_datos_mes_en_memoria(year, month)
+        
+        if not df_mes.empty:
+            dfs_acumulados.append(df_mes)
+            print(f"¡Éxito! {len(df_mes)} artículos agregados.", flush=True)
+        else:
+            print("FALLÓ o no tenía artículos válidos.", flush=True)
+            
+        # Pausa obligatoria de 12 segundos respetando el límite de la API de NYT
+        if i < total_meses:
+            time.sleep(12)
+
+    # --- Consolidación final en la variable única ---
+    if dfs_acumulados:
+        # Unimos todos los meses descargados en memoria
+        noticias_NYT = pd.concat(dfs_acumulados, ignore_index=True)
+        
+        # Renombramos tus columnas tal como lo requieres
+        noticias_NYT = noticias_NYT.rename(columns={
+            "section_name": "Section",
+            "headline.main": "Title",
+            "abstract": "Content"
+        })
+        
+        # Reordenamos la estructura final de las columnas
+        noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
+        print(f"\n Procesamiento completado en memoria. Variable 'noticias_NYT' lista con {len(noticias_NYT)} registros.")
+    else:
+        print("\n[Error Crítico] No se pudo obtener información de ningún mes. Creando DataFrame vacío con estructura.")
+        noticias_NYT = pd.DataFrame(columns=["Date", "Section", "Title", "Content"])
+        
+    # Filtro el rango final
+    noticias_NYT = noticias_NYT[
+        (noticias_NYT["Date"] >= "2021-01-01 00:00:00") &
+        (noticias_NYT["Date"] < "2026-01-01 00:00:00")
+    ]
+
+    # Ordenar por fecha
+    noticias_NYT = noticias_NYT.sort_values("Date").reset_index(drop=True)
+    print(f"\n Total articulos descargados: {len(noticias_NYT)}")
+
+    # Elimino las filas con NaN
+    noticias_NYT = noticias_NYT.dropna(subset=['Section', 'Title'])
+
+    # Reviso  duplicados
+    duplicate_news = noticias_NYT[noticias_NYT.duplicated(subset=["Title", "Content"], keep=False)]
+
+    # Elimino los duplicados manteniendo solo la primera fila encontrada
+    unique_news = noticias_NYT.drop_duplicates(subset=["Title", "Content"], keep='first').reset_index(drop=True)
+
+    # Lista de sección si rigos financiero
+    black_list = [
+        'Crosswords & Games', 'Gameplay', 'Movies', 'Arts', 'Theater', 'Books',
+        'Book Review', 'Briefing', 'Today’s Paper', 'Times Insider', 'Corrections',
+        'Admin', 'Reader Center', 'Homepage', 'Video', 'Multimedia/Photos',
+        'The Learning Network', 'Education', 'Parenting', 'Well', 'At Home',
+        'Smarter Living', 'Neediest Cases', 'Giving', 'Sports', 'Obituaries',
+        'Weather', 'Travel', 'Podcasts', 'En español', 'en Español', 'New York',
+        'International Home', 'Lens', 'Universal', 'Home & Garden'
+    ]
+
+    # Quito las noticias ruidosas
+    relevant_last_news = unique_news[~unique_news['Section'].isin(black_list)]
+
+    # Reseteo indice
+    relevant_last_news = relevant_last_news.reset_index(drop=True)
+
+    # Creo una nueva columna: seccion + titulo + contenido
+    relevant_last_news["Full Text"] = (
+        "[SECTION] " + relevant_last_news["Section"] + "\n" +
+        "[TITLE] " + relevant_last_news["Title"] + "\n" +
+        "[CONTENT] " + relevant_last_news["Content"]
+    )
+
+
+    print("Inicio el mapeo, analisis gramtical y limpieza para generar los inputs textuales")
     # Extraccion de palabras claves de empresas con NER
     # Descargo NER
     print("Comienza la extraccion de palabras claves con NER")
