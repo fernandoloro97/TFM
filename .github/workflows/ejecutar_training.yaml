@@ -193,7 +193,45 @@
 #           OPENBLAS_NUM_THREADS: 1
 #         run: python src_training/train_inference_trading/train_inference_trading.py
 
-name: Ejecutar Trading System
+# name: Ejecutar Trading System
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+#   workflow_dispatch:
+
+# jobs:
+#   ejecutar-trading-system:
+
+#     runs-on: ubuntu-latest
+
+#     steps:
+
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.11'
+
+#       - name: Install dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install pandas numpy boto3
+
+#       - name: Run Trading System
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+
+#         run: |
+#           python src_training/trading_system/trading_system.py
+
+name: Ejecutar Metrics
 
 on:
   push:
@@ -203,7 +241,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  ejecutar-trading-system:
+  ejecutar-metrics:
 
     runs-on: ubuntu-latest
 
@@ -222,14 +260,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy boto3
 
-      - name: Run Trading System
+      - name: Run Metrics Script
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
 
         run: |
-          python src_training/trading_system/trading_system.py
+          python src_training/metrics/metrics.py
 
 
 # on:

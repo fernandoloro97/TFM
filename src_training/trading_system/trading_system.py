@@ -10,17 +10,14 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 
 
-
-s3 = boto3.client('s3')
-# Inicialización de recursos de AWS
+# Congifur el s3 y el dynamodb
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+s3 = boto3.client('s3')
 
+# Descargo las tablas en partes y corrijo los tipos de datos para ejecutarlo en el sistema trading
 def descargar_y_limpiar_tabla(nombre_tabla):
-    """
-    Descarga una tabla de DynamoDB por bloques, la convierte a un formato
-    numérico rápido y reestructura el índice temporal.
-    """
-    print(f"[DynamoDB] Iniciando descarga de: {nombre_tabla}", flush=True)
+
+    print(f"Iniciando descarga de la tabla: {nombre_tabla}", flush=True)
     table = dynamodb.Table(nombre_tabla)
     
     response = table.scan()
@@ -40,25 +37,23 @@ def descargar_y_limpiar_tabla(nombre_tabla):
         print(f"[Advertencia] La tabla {nombre_tabla} está vacía.")
         return pd.DataFrame()
 
-    # Concatenamos de forma eficiente todos los bloques en memoria
+    # Concato todos los resultado en bloques
     df = pd.concat(chunks, ignore_index=True)
     print(f"[Procesando] Estructurando DataFrame para {nombre_tabla}...", flush=True)
 
-    # 1. Asegurar que la columna 'Date' existe
     if 'Date' not in df.columns:
         raise KeyError(f"La columna 'Date' no se encontró en la tabla {nombre_tabla}")
 
-    # 2. Convertir 'Date' a tipo Datetime nativo de Pandas
+    # Convierto Date a formato datetime
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     
-    # 3. Establecer 'Date' como el índice de la tabla
+    # Establezco Date como indice, porque lo tenia como columna en la tabla
     df = df.set_index('Date')
     
-    # 4. Convertir el resto de columnas (tickers) de 'Decimal' a 'float'
-    # errors='coerce' transformará cualquier dato inválido o vacío en NaN automáticamente
+    # Convierto tanto los precios y volumenes a float para operar con ellos, ya que esta en Decimal
     df = df.apply(pd.to_numeric, errors='coerce').astype(float)
     
-    # 5. Ordenar el índice cronológicamente y las columnas alfabéticamente (A->Z)
+    # Ordeno las fechas de las mas antiguo al reciente
     df = df.sort_index().sort_index(axis=1)
     
     print(f"[OK] {nombre_tabla} lista. Dimensiones: {df.shape}", flush=True)
@@ -905,7 +900,7 @@ def sistemas_trading():
 
     # Reconstruye tu diccionario manteniendo el 100% de los tipos de datos originales
     inferencia_modelos = pickle.loads(archivo_bytes)
-    print(f"Cargue el pickle exitosamentes, donde tengo cargadas en el diccionario: {len(inference_dict)} elementos", flush=True)
+    print(f"Cargue el pickle exitosamentes, donde tengo cargadas en el diccionario: {len(inferencia_modelos)} elementos", flush=True)
 
     print("Inicio del proceso del sistema trading")
     # Fijo el capital el 10000 para todos los modelos
@@ -925,12 +920,10 @@ def sistemas_trading():
 
         info_modelo = inferencia_modelos[idx_modelo]
 
-        model_id    = info_modelo["model_id"]
-        modelo      = info_modelo["modelo"]
+        model_id = info_modelo["model_id"]
+        modelo = info_modelo["modelo"]
         ventana_str = info_modelo["ventana"]
-
         df_senales = info_modelo["inference_df"]
-
         ventana_min = extraer_ventana_minutos(ventana_str)
 
         print(f"\nModelo idx: {idx_modelo}")
