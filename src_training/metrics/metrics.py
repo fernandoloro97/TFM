@@ -403,7 +403,6 @@ for variante_id, datos_variante in variantes_backtest.items():
         
     df_res = datos_variante["df_resultado"].copy()
     if len(df_res) == 0:
-        print(f"⚠️ Variante {variante_id}: Saltada por df_resultado vacío.")
         continue
 
     # Solo me quedo con la fecha y quito la hora
@@ -598,3 +597,162 @@ metricas_distintos_capitales = metricas_distintos_capitales.sort_values(
 ).reset_index(drop=True)
 
 print(f"\nMetricas del sistema trading de distints capitales del mejor modelo: {metricas_distintos_capitales.shape}")
+
+
+
+
+print("\nInicio de metricas para el benckmark SP500")
+# Listas para recopilar metricas de los tramos del S&P 500
+resultados_metricas_sp500 = []
+
+# Aseguro el formato datetime en el indice y extraigo la fecha normalizada
+fechas_normalizadas = pd.to_datetime(sp500_precio_sesion.index).normalize()
+
+# Agrupo por el indice normalizado, tomar el ultimo precio de la columna 'SP500' y resetear el indice
+sp500_diario = (
+    sp500_precio_sesion.groupby(fechas_normalizadas)['SP500']
+    .last()
+    .reset_index()
+)
+
+# Renombro las columnas
+sp500_diario.columns = ["fecha", "close_sp500"]
+
+fecha_entrada_global = 	"2021-01-04"
+fecha_salida_global = "2025-12-18"	
+ultimo_dia_train = "2024-07-12"
+ultimo_dia_val = "2025-03-11"
+
+# Aplico el filtro que negocia el algoritmo
+sp500_global = sp500_diario[
+    (sp500_diario["fecha"] >= fecha_entrada_global)
+    & (sp500_diario["fecha"] <= fecha_salida_global)
+].sort_values("fecha").reset_index(drop=True)
+
+if len(sp500_global) > 1:
+
+    precio_inicial_global = sp500_global["close_sp500"].iloc[0]
+    sp500_global["equity_sp500"] = (
+        sp500_global["close_sp500"] / precio_inicial_global
+    ) * 10000
+
+    # Calculo los rendimientos logaritmicos
+    sp500_global["ret_diario_log"] = np.log(
+        sp500_global["equity_sp500"] / sp500_global["equity_sp500"].shift(1)
+    )
+
+    # Segmento el S&P 500 en los mismos 3 subconjuntos contiguos
+    sp500_train = sp500_global[sp500_global["fecha"] <= ultimo_dia_train]
+    
+    sp500_val = sp500_global[
+        (sp500_global["fecha"] > ultimo_dia_train)
+        & (sp500_global["fecha"] <= ultimo_dia_val)
+    ]
+    
+    sp500_test = sp500_global[sp500_global["fecha"] > ultimo_dia_val]
+
+    escenarios_sp500 = [
+        {"tipo": "Global", "df_tramo": sp500_global, "es_sub": False},
+        {"tipo": "Train", "df_tramo": sp500_train, "es_sub": True},
+        {"tipo": "Validation", "df_tramo": sp500_val, "es_sub": True},
+        {"tipo": "Test", "df_tramo": sp500_test, "es_sub": True},
+    ]
+
+
+    # Calculo las metricas por escenario para el SP500
+    for esc in escenarios_sp500:
+        tipo_subconjunto = esc["tipo"]
+        df_tramo = esc["df_tramo"].copy()
+
+        if len(df_tramo) <= 1:
+            continue
+
+        num_dias_sp500 = len(df_tramo) if esc["es_sub"] else len(df_tramo) - 1
+        fraccion_ano_sp500 = num_dias_sp500 / 252
+
+        if fraccion_ano_sp500 <= 0:
+            continue
+
+        rent_sp500_log = df_tramo["ret_diario_log"].sum()
+        rent_anual_sp500 = rent_sp500_log / fraccion_ano_sp500
+
+        vol_diaria_sp500 = df_tramo["ret_diario_log"].std()
+        vol_anual_sp500 = vol_diaria_sp500 * np.sqrt(252)
+
+        sharpe_sp500 = (
+            (rent_anual_sp500 / vol_anual_sp500) if vol_anual_sp500 > 0 else 0
+        )
+
+        ret_negativos_sp500 = df_tramo["ret_diario_log"][
+            df_tramo["ret_diario_log"] < 0
+        ]
+        vol_downside_sp500 = (
+            ret_negativos_sp500.std() * np.sqrt(252)
+            if len(ret_negativos_sp500) > 0
+            else 0
+        )
+        sortino_sp500 = (
+            (rent_anual_sp500 / vol_downside_sp500) if vol_downside_sp500 > 0 else 0
+        )
+
+        picos_sp500 = df_tramo["equity_sp500"].cummax()
+        drawdowns_sp500 = (df_tramo["equity_sp500"] - picos_sp500) / picos_sp500
+        max_dd_sp500 = drawdowns_sp500.min()
+
+        calmar_sp500 = (
+            (rent_anual_sp500 / abs(max_dd_sp500)) if max_dd_sp500 != 0 else 0
+        )
+
+        dias_ganadores_sp500 = df_tramo["ret_diario_log"] > 0
+        dias_perdedores_sp500 = df_tramo["ret_diario_log"] < 0
+        win_rate_sp500 = dias_ganadores_sp500.sum() / num_dias_sp500
+
+        avg_ganancia_sp500 = df_tramo.loc[dias_ganadores_sp500, "ret_diario_log"].mean()
+        avg_perdida_sp500 = df_tramo.loc[dias_perdedores_sp500, "ret_diario_log"].mean()
+        pl_ratio_sp500 = (
+            abs(avg_ganancia_sp500 / avg_perdida_sp500)
+            if (not pd.isna(avg_perdida_sp500) and avg_perdida_sp500 != 0)
+            else 0
+        )
+
+        en_dd_sp500 = df_tramo["equity_sp500"] < picos_sp500
+        racha_dd_sp500 = en_dd_sp500.groupby((~en_dd_sp500).cumsum()).cumsum()
+        max_duracion_dd_sp500 = (
+            racha_dd_sp500.max() if not racha_dd_sp500.empty else 0
+        )
+
+        capital_formateado = f"{df_tramo['equity_sp500'].iloc[0]:.2f}"
+
+        # Consolido los metadatos y metricas calculados
+        registro = {
+            "subconjunto": tipo_subconjunto,
+            "Capital Inicial": capital_formateado, 
+            "Fecha Inicio": df_tramo["fecha"].iloc[0].strftime("%Y-%m-%d"),
+            "Días Activos": num_dias_sp500,
+            "Frac. Año Evaluada": round(fraccion_ano_sp500, 4),
+            "Rentabilidad": f"{rent_anual_sp500:.4%}",
+            "Volatilidad": f"{vol_anual_sp500:.4%}",
+            "Ratio Sharpe": f"{sharpe_sp500:.4f}",
+            "Ratio Sortino": f"{sortino_sp500:.4f}",
+            "Ratio Calmar": f"{calmar_sp500:.4f}",
+            "Máx. Drawdown": f"{max_dd_sp500:.4%}",
+            "Máx. Duración Drawdown": int(max_duracion_dd_sp500),
+            "% Dias Ganadores": f"{win_rate_sp500:.2%}",
+            "Ratio G/P Diario": f"{pl_ratio_sp500:.2f}",
+        }
+        resultados_metricas_sp500.append(registro)
+
+# Creo el df con los resultados globales y por partes
+metricas_sp500_historicas = pd.DataFrame(resultados_metricas_sp500)
+
+# Transpongo usando la columna 'subconjunto'
+metricas_sp500_t = metricas_sp500_historicas.set_index("subconjunto").T
+
+# Pasamos el antiguo indice 
+metricas_sp500_vertical = metricas_sp500_t.reset_index()
+metricas_sp500_vertical = metricas_sp500_vertical.rename(
+    columns={"index": "Métrica"}
+)
+
+print(f"\nSe calculos correctamente las metricas para el SP500, tiene el shape sigueinte: {metricas_sp500_vertical.shape}")
+
