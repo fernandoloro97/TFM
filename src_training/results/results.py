@@ -948,6 +948,35 @@ metricas_sp500_vertical = metricas_sp500_t.reset_index()
 metricas_sp500_vertical = metricas_sp500_vertical.rename(
     columns={"index": "Métrica"}
 )
-
 print(f"\nSe calculos correctamente las metricas para el SP500, tiene el shape sigueinte: {metricas_sp500_vertical.shape}")
 
+
+
+
+
+print("Genero el cuadro comparativo entre el algoritmo optimo y el SP500 global y por tramos de dataset")
+# Elimino la columna 'Subconjunto' de ambos df
+df_sp500 = metricas_sp500_vertical.drop(columns=["Subconjunto"], errors="ignore")
+df_modelo = metricas_historicas_vertical.drop(columns=["Subconjunto"], errors="ignore")
+
+# Uno ambos df horizontalmente usando la columna 'Métrica'
+df_unificado = pd.merge(
+    df_sp500, 
+    df_modelo, 
+    on="Métrica", 
+    how="left", 
+    suffixes=(" S&P 500", " Modelo")
+)
+
+# Defino el orden manual exacto para que las columnas queden entrelazadas cara a cara
+columnas_ordenadas = [
+    "Métrica",
+    "Global S&P 500",     "Global Modelo",
+    "Train S&P 500",      "Train Modelo",
+    "Validation S&P 500", "Validation Modelo",
+    "Test S&P 500",       "Test Modelo"
+]
+
+# Reordeno las columnas del df final
+df_comparativa_final = df_unificado.reindex(columns=columnas_ordenadas)
+print(f"\nDf comparativo realizado, miro su shape: {df_comparativa_final.shape}")
