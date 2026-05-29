@@ -866,17 +866,17 @@ def extraer_ventana_minutos(ventana_str):
     
 
 resultados_sistema_trading = None
+resultados_sistema_trading_del_optimo = None
 
 # Funcion para entrenar distintas configuraciones por modelo y hacer sus inferencias
 def sistemas_trading():
-    global resultados_sistema_trading
+    global resultados_sistema_trading, resultados_sistema_trading_del_optimo
 
     print("Inicio de la descargar de precios, volumnes e inferencias")
-    # --- EJECUCIÓN MULTIHILO PARALELO ---
     tablas_mercado = ['period_sesion_close_prices', 'period_sesion_volumes']
     resultados_tablas = {}
 
-    print("Lanzando procesos de descarga en paralelo...", flush=True)
+    print("Lanzo procesos de descarga en paralelo", flush=True)
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(descargar_y_limpiar_tabla, name): name for name in tablas_mercado}
         for future in futures:
@@ -898,7 +898,7 @@ def sistemas_trading():
     response = s3.get_object(Bucket=NOMBRE_BUCKET, Key=NOMBRE_ARCHIVO)
     archivo_bytes = response['Body'].read()
 
-    # Reconstruye tu diccionario manteniendo el 100% de los tipos de datos originales
+    # Reconstruyo el diccionario de pickle
     inferencia_modelos = pickle.loads(archivo_bytes)
     print(f"Cargue el pickle exitosamentes, donde tengo cargadas en el diccionario: {len(inferencia_modelos)} elementos", flush=True)
 
@@ -996,8 +996,120 @@ def sistemas_trading():
                 }
 
                 idx_test += 1
+                
+    # Fijo distintos capitales para evularlo con el modelo optimo            
+    capitales_del_optimo = [
+        100,
+        200,
+        500,
+        1000,
+        2000,
+        5000,
+        10000,
+        20000,
+        50000,
+        100000,
+        200000,
+        500000,
+        1000000
+
+    ]
+
+    # Fijo la combinacion de sistema trading del optimo
+    combinaciones_del_optimo = list(itertools.product(
+        [True],   # trailing
+        [True],   # usar_limite_exposicion
+        [0.000]   # perc_riesgo
+    ))
+
+    # Recipiente para los resultado del modelo optimo por distintos capitales
+    resultados_backtest_del_optimo = {}
+
+
+    # Solo itero por el modelo optimo
+    for idx_modelo in [15]:
+
+        info_modelo = inferencia_modelos[idx_modelo]
+
+        model_id    = info_modelo["model_id"]
+        modelo      = info_modelo["modelo"]
+        ventana_str = info_modelo["ventana"]
+
+        df_senales = info_modelo["inference_df"]
+
+        ventana_min = extraer_ventana_minutos(ventana_str)
+
+        print(f"Modelo idx: {idx_modelo}")
+        print(f"Model ID : {model_id}")
+        print(f"Ventana  : {ventana_min} min")
+
+        resultados_backtest_del_optimo[idx_modelo] = {}
+
+        # contador de tests
+        idx_test = 0
+
+        # Itero por los distintos capitales para analizar
+        for capital in capitales_del_optimo:
+
+            # Itero por la combinacion optima del sistemas trading
+            for trailing, usar_limite_exposicion, perc_riesgo in combinaciones_del_optimo:
+
+                print(
+                    f"Test={idx_test} | "
+                    f"Capital={capital} | "
+                    f"trailing={trailing} | "
+                    f"limite_exp={usar_limite_exposicion} | "
+                    f"perc_riesgo={perc_riesgo}"
+                )
+
+                # Ejecuto el sistema trading
+                sim = TradingSimulator2(
+                    capital_inicial=capital,
+                    ventana=ventana_min,
+                    trailing=trailing,
+                    trailing_trigger_pct=0.02,
+                    usar_limite_exposicion=usar_limite_exposicion,
+                    limite_exposicion_pct=0.05,
+                    perc_riesgo=perc_riesgo
+                )
+
+                # Ejecuto el calculo de la tabla de resultados
+                df_resultado = sim.ejecutar_simulacion(
+                    df_senales,
+                    volumen_sesion,
+                    precios_cierre_sesion
+                )
+
+                # Ejecuto el calculo del balance contable diario
+                df_balance = pd.DataFrame(sim.reporte_diario)
+
+                # Guardo los resultado en el diccionario mencionado
+                resultados_backtest_del_optimo[idx_modelo][idx_test] = {
+
+                    # Modelo
+                    "model_id": model_id,
+                    "modelo": modelo,
+                    "ventana_original": ventana_str,
+                    "ventana_minutos": ventana_min,
+
+                    # Test
+                    "test_id": idx_test,
+
+                    # Parametros simulacion
+                    "capital_inicial": capital,
+                    "trailing": trailing,
+                    "usar_limite_exposicion": usar_limite_exposicion,
+                    "perc_riesgo": perc_riesgo,
+
+                    # Resultado
+                    "df_resultado": df_resultado,
+                    "df_balance": df_balance
+                }
+
+                idx_test += 1
     
     resultados_sistema_trading = resultados_backtest
+    resultados_sistema_trading_del_optimo = resultados_backtest_del_optimo
 
 
 # Controlo la duracion de ejecucion
@@ -1012,7 +1124,9 @@ if proceso1.is_alive():
     proceso1.terminate()
     proceso1.join() 
     print("\nSolo la carga de precios y volumenes minuto a minuto tarda mas de 30 minutos y el sistema trading para 20 modelos me tarda alrededor de 20 horas")
-    print("\nLos resultados de trading de los 20 modelos lo tengo guardado en mi buscket top20-trading-results ")
+    print("\nEl sistema trading para el modelo optimo para distintos capitales me tarda mas de 3 horas")
+    print("\nLos resultados de trading de los 20 modelos lo tengo guardado en mi buscket top20-trading-results y para distintos capitales en capitals-trading-results")
+
 else:
     print("El proceso de sistema trading milagrosamente termino a tiempo")
     
