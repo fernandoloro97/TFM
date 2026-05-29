@@ -12,6 +12,9 @@ Primero que nada, todos los codigos de ejecicion de produccion esta en src_produ
 . API Alpaca: El codigo para actualizar precios de cierre y volumenes del dia esta en prices_and_volumes. Se ejecuta en github, porque en Lambda se excede el tiempo limite. Por tanto, no tiene dockerfile, se pushea en ejecutar_datos.yaml
 . Procesamiento, Analisis e Inferencia: El codigo para extraer noticias, mapear noticias, hacer analisis gramatical, limpiar lo recibo del analisis gramatical, codificar los inputs y hacer inferencia con el algoritmo optimo estan en model_inference. El codigo se ejecuta en github, porque demorar entre 1 hora y 3 horas segun el día de la semana. El codigo se pushea en ejecutar_inferencia.yaml
 . Sistema de trading: El codigo que negocia las señales obtenidas de model_inference es trading_system. Se ejecuta en Lambda, ousheado en ejecutar_negociacion.yaml
+. Grafica de balance: El codigo coje la tabla daily_balance de AWS para graficar la evolucion del patrimonio diariamente y hacer calculos de metricas de rendimiento, riesgo y ratios de estos hasta la fecha seleccionada (metricas acumulativas) y lo ejecuta en streamlist, donde mas abajo dejo el link y una captura hasta el 28/05/2026.
+
+
 
 Respecto a entrenamiendo:
 Todo los codigos de entrenamiento están en src_training y todos se ejecutan en github, porque suelen tardar, entonces no necesitan dockerfiles. Ademas todos se pushean en ejecutar_training.yaml
