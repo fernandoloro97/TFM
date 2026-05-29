@@ -444,15 +444,25 @@ df_preparado = df_preparado.replace(
     {"nan": None, "None": None, "": None, np.nan: None}
 )
 
-# Transformo el df a diccionario
-items_to_upload = [
-    {k: v for k, v in row.items() if v is not None}
-    for row in df_preparado.to_dict(orient="records")
-]
 
-# 4. Subir el diccionario a la tabla
-with tabla_wikipedia_keys.batch_writer() as batch:
-    for item in items_to_upload:
-        batch.put_item(Item=item)
+# Verifico si hay algun dato en la tabla
+chequeo_tabla = tabla_wikipedia_keys.scan(Limit=1)
 
-print("Tabla period_wikipeda_keys subida")
+# Si hay datos, no subo nada
+if chequeo_tabla.get('Items'):
+    print("La tabla period_wikipedia_keys ya contiene datos. Se cancela la subida para evitar duplicados", flush=True)
+else:
+    print("La tabla esta vacia. Procesando y subiendo datos", flush=True)
+    
+    # Transformo el df a diccionario filtrando los valores None
+    items_to_upload = [
+        {k: v for k, v in row.items() if v is not None}
+        for row in df_preparado.to_dict(orient="records")
+    ]
+
+    # Subo el diccionario a la tabla
+    with tabla_wikipedia_keys.batch_writer() as batch:
+        for item in items_to_upload:
+            batch.put_item(Item=item)
+
+    print("Tabla period_wikipeda_keys subida")

@@ -183,11 +183,18 @@ df_merged.insert(3, 'Industry Group', col)
 # Conecto con la tabla de period_companys_morningstar_sectors
 tabla_destino = dynamodb.Table('period_companys_morningstar_sectors')
 
-# Subo el df df_merged a dicha tabla
-with tabla_destino.batch_writer() as batch:
-    for _, fila in df_merged.iterrows():
-        item = fila.to_dict()
-        item['Ticker'] = str(item['Ticker']).strip()
-        batch.put_item(Item=item)
+# Verifico rapidamente si al menos hay un registro
+chequeo_existencia = tabla_destino.scan(Limit=1)
 
-print("Tabla period_companys_morningstar_sectors subida")
+if chequeo_existencia.get('Items'):
+    print("La tabla ya contiene datos. Se cancela la subida para evitar duplicados.", flush=True)
+else:
+    print("La tabla está vacia. Iniciando subida masiva", flush=True)
+    # Subo el df df_merged a dicha tabla
+    with tabla_destino.batch_writer() as batch:
+        for _, fila in df_merged.iterrows():
+            item = fila.to_dict()
+            item['Ticker'] = str(item['Ticker']).strip()
+            batch.put_item(Item=item)
+            
+    print("Tabla period_companys_morningstar_sectors subida")

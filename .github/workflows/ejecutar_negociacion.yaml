@@ -56,4 +56,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Code
-      run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ
+      run: echo "Workflow desactivado temporalmente"  

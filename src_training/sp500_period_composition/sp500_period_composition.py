@@ -466,12 +466,23 @@ df_preparado["Date"] = df_preparado["Date"].astype(str)
 df_preparado["Ticker"] = df_preparado["Ticker"].astype(str)
 df_preparado["Total Companies"] = df_preparado["Total Companies"].astype(int)
 
-# Convierto a diccionario
-dicc_sp500_diario = df_preparado.to_dict(orient="records")
 
-# Subo el dicciacion a la tabla de dynamodb
-with tabla_sp500_period_historic.batch_writer() as batch:
-    for row in dicc_sp500_diario:
-        batch.put_item(Item=row)
 
-print("Tabla sp500_period_historic subida")
+# Verifico si hay algun dato en la tabla
+chequeo_tabla = tabla_sp500_period_historic.scan(Limit=1)
+
+# Si hay datos, no subo nada
+if chequeo_tabla.get('Items'):
+    print("La tabla sp500_period_historic ya contiene datos. Se cancela la subida para evitar duplicados", flush=True)
+else:
+    print("La tabla está vacia. Iniciando la subida de datos", flush=True)
+    
+    # Convierto a diccionario
+    dicc_sp500_diario = df_preparado.to_dict(orient="records")
+
+    # Subo el diccionario a la tabla de dynamodb
+    with tabla_sp500_period_historic.batch_writer() as batch:
+        for row in dicc_sp500_diario:
+            batch.put_item(Item=row)
+
+    print("Tabla sp500_period_historic subida")
