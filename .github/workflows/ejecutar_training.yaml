@@ -151,47 +151,85 @@
 #         run: python src_training/analisis_hasta_inputs_outputs/analisis_hasta_inputs_outputs.py
 
 
-name: Executing Trading Machine Learning Training Pipeline
+# name: Executing Trading Machine Learning Training Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main
+#   workflow_dispatch: 
+
+# jobs:
+#   ejecutar-pipeline:
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.11'
+#           cache: 'pip' # Acelera futuras ejecuciones guardando las librerías
+
+#       - name: Install System Dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+          
+#           # Instalación limpia que descarga la versión ligera (CPU) de PyTorch sin fallar
+#           pip install pandas numpy boto3 scikit-learn lightgbm xgboost \
+#                       torch --extra-index-url https://pytorch.org --no-cache-dir
+
+
+#       - name: Run Trading Training and Inference Script
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+#           # Control estricto de hilos para evitar bloqueos por falta de CPUs
+#           OMP_NUM_THREADS: 1
+#           MKL_NUM_THREADS: 1
+#           OPENBLAS_NUM_THREADS: 1
+#         run: python src_training/train_inference_trading/train_inference_trading.py
+
+name: Ejecutar Trading System
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch: 
+
+  workflow_dispatch:
 
 jobs:
-  ejecutar-pipeline:
+  ejecutar-trading-system:
+
     runs-on: ubuntu-latest
-    
+
     steps:
+
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          cache: 'pip' # Acelera futuras ejecuciones guardando las librerías
 
-      - name: Install System Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          
-          # Instalación limpia que descarga la versión ligera (CPU) de PyTorch sin fallar
-          pip install pandas numpy boto3 scikit-learn lightgbm xgboost \
-                      torch --extra-index-url https://pytorch.org --no-cache-dir
+          pip install pandas numpy boto3
 
-
-      - name: Run Trading Training and Inference Script
+      - name: Run Trading System
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
-          # Control estricto de hilos para evitar bloqueos por falta de CPUs
-          OMP_NUM_THREADS: 1
-          MKL_NUM_THREADS: 1
-          OPENBLAS_NUM_THREADS: 1
-        run: python src_training/train_inference_trading/train_inference_trading.py
+
+        run: |
+          python src_training/trading_system/trading_system.py
 
 
 # on:
