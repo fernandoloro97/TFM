@@ -42,7 +42,9 @@ Todo los codigos de entrenamiento están en src_training y todos se ejecutan en 
 
 
 
+
 Registro y captura de panatalla de servicios usados en AWS:
+
 ECR:
 
 ![alt text](image-1.png)
