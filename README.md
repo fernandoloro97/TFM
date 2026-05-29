@@ -18,3 +18,5 @@ Triggers de ejecucion:
 ![alt text](image-5.png)
 
 Los pipelines yaml de ejecucion estan desactivados por seguridad para evitar subir sin mi intencion. Pero todos funcionan perfectamente.
+
+De todas maneras mi github estara publico, os lo dejo el link aqui tambien: https://github.com/fernandoloro97/TFM
