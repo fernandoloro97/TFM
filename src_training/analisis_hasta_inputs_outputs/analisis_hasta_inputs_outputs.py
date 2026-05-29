@@ -110,6 +110,8 @@ inputs_texto_brutos = get_table_df('inputs_textos')
 # # Reordenar columnas
 # noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
 
+# Guardo el cancelador de threading
+cancelar_descarga = threading.Event()
 
 # Creo una variable global para guardar despues el resultado final de todo el proceso lento
 inputs_gramatical_final = None
@@ -2991,6 +2993,7 @@ hilo.join(timeout=120)
 
 # Condicion de tope de tiempo para traer los resultados ya listos
 if hilo.is_alive():
+    cancelar_descarga.set() 
     print("\nEl codigo tardo mas de 2 minutos.")
     print("""
     Me salto todo el proceso, porque realmente todo el proceso demora semanas, sino meses, al ejecutarlo con CPU.
@@ -3125,13 +3128,13 @@ def pipeline_codificacion_finbert():
     title_embeddings_matrix = get_embeddings(inputs_gramatical["Titulo Noticia"].tolist())
     title_embedding_data = pd.DataFrame(title_embeddings_matrix)
     # Cambio los nombres porque son numeros ahora y necesito reconocer a que input hace referencia
-    title_embedding_data.columns = [f'Titulo_{i}' for i in range(title_embedding_data.shape[1])]
+    title_embedding_data.columns = [f'Titulo_{i}' for i in range(title_embedding_data.shape)]
 
     # Aplico el embedding a contenidos
     content_embeddings_matrix = get_embeddings(inputs_gramatical["Contenido Noticia"].tolist())
     content_embedding_data = pd.DataFrame(content_embeddings_matrix)
     # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
-    content_embedding_data.columns = [f'Contenido_{i}' for i in range(content_embedding_data.shape[1])]
+    content_embedding_data.columns = [f'Contenido_{i}' for i in range(content_embedding_data.shape)]
 
     # Generador de emebdding para verbo y contexto
     def get_embeddings_ndarray(verbo_column, batch_size=64):
@@ -3179,13 +3182,13 @@ def pipeline_codificacion_finbert():
     verbo_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Verbo'])
     verbo_embeddings = pd.DataFrame(verbo_embeddings_matrix)
     # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
-    verbo_embeddings.columns = [f'Verbo_{i}' for i in range(verbo_embeddings.shape[1])]
+    verbo_embeddings.columns = [f'Verbo_{i}' for i in range(verbo_embeddings.shape)]
 
     # Aplico el embedding a contextos
     contexto_embeddings_matrix = get_embeddings_ndarray(inputs_gramatical['Contexto'])
     contexto_embeddings = pd.DataFrame(contexto_embeddings_matrix)
     # Cambios los nombres son numeros ahora y necesito reconocer a que input hacer referencia
-    contexto_embeddings.columns = [f'Contexto_{i}' for i in range(contexto_embeddings.shape[1])]
+    contexto_embeddings.columns = [f'Contexto_{i}' for i in range(contexto_embeddings.shape)]
 
 
     # Listado de todos lo inputs codificados
