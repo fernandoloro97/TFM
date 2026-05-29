@@ -63,10 +63,13 @@ inputs_gramatical_final = None
 
 # Controlo el tiempo de ejecucion
 def proceso_lento():
-    global inputs_gramatical_final  # Permite guardar el resultado hacia afuera
-    # Tu API KEY de New York Times
+    global inputs_gramatical_final  
+    
+    print("\nInicio el proceso de extraccion de noticias, mapping, analisis gramatical y generacion inputs textuales")
+    # Guardo mi del New York Times
     API_KEY = "1sO8gR66gfd7wAU8HaGYxqDMGhROZH0VsLMBY7WEXzjF6VgV"
 
+    # Obtengo los datos mensualmente del perido de analisis mediante la API KEY del NEW YORK TIMES
     def obtener_datos_mes_en_memoria(year, month, reintentos=3):
         """Consulta la API de NYT y procesa los datos directamente en un DataFrame."""
         url = f"https://api.nytimes.com/svc/archive/v1/{year}/{month}.json"
@@ -81,21 +84,20 @@ def proceso_lento():
                     if not docs:
                         return pd.DataFrame()
                     
-                    # Convertimos la respuesta cruda directamente a un DataFrame
+                    # Convierto los recibido en bruto a df
                     df = pd.json_normalize(docs)
                     
-                    # Aplicamos tus filtros y transformaciones directamente
+                    # Busco solo articulos
                     if "document_type" in df.columns:
                         df = df[df["document_type"].str.lower() == "article"].copy()
                     
-                    # Validamos que existan las columnas necesarias para evitar errores
                     columnas_necesarias = ["pub_date", "section_name", "headline.main", "abstract"]
                     if not all(col in df.columns for col in columnas_necesarias):
                         return pd.DataFrame()
                     
                     df = df[columnas_necesarias]
                     
-                    # Ajustamos la hora a Nueva York y eliminamos zona horaria para normalizar
+                    # Ajusto las hora a Nueva York
                     df["Date"] = (
                         pd.to_datetime(df["pub_date"], utc=True, format='ISO8601')
                         .dt.tz_convert(ZoneInfo("America/New_York"))
@@ -115,9 +117,9 @@ def proceso_lento():
                 print(f"  Excepción en {year}/{month}: {e}. Intento {intento+1}/{reintentos}")
                 time.sleep(10)
                 
-        return pd.DataFrame() # Retorna DataFrame vacío si fallaron todos los intentos
+        return pd.DataFrame() 
 
-    # --- Generar la lista de meses a procesar (2021 a 2025 completo + Enero 2026) ---
+    # Genero las lista de meses por cada año del periodo de analisis
     meses_a_procesar = []
     for year in range(2021, 2026):
         for month in range(1, 13):
@@ -127,40 +129,39 @@ def proceso_lento():
     total_meses = len(meses_a_procesar)
     dfs_acumulados = []
 
-    print(f"Iniciando descarga en memoria de {total_meses} meses desde la API...", flush=True)
-
+    print(f"Iniciando descarga de {total_meses} meses desde la API", flush=True)
     for i, (year, month) in enumerate(meses_a_procesar, start=1):
-        print(f"[{i}/{total_meses}] Procesando {year}/{month:02d}...", end=" ", flush=True)
+        print(f"[{i}/{total_meses}] Procesando {year}/{month:02d}", end=" ", flush=True)
         
         df_mes = obtener_datos_mes_en_memoria(year, month)
         
         if not df_mes.empty:
             dfs_acumulados.append(df_mes)
-            print(f"¡Éxito! {len(df_mes)} artículos agregados.", flush=True)
+            print(f"Conseguido!!!, {len(df_mes)} artículos agregados", flush=True)
         else:
-            print("FALLÓ o no tenía artículos válidos.", flush=True)
+            print("Fallo el Api o no tenia articulos validos", flush=True)
             
-        # Pausa obligatoria de 12 segundos respetando el límite de la API de NYT
+        # Pausas para evitar bloqueos
         if i < total_meses:
             time.sleep(12)
 
-    # --- Consolidación final en la variable única ---
+    # Guardo todos los meses en solo df
     if dfs_acumulados:
-        # Unimos todos los meses descargados en memoria
+        # Concanteno
         noticias_NYT = pd.concat(dfs_acumulados, ignore_index=True)
         
-        # Renombramos tus columnas tal como lo requieres
+        # Renombro las columnas
         noticias_NYT = noticias_NYT.rename(columns={
             "section_name": "Section",
             "headline.main": "Title",
             "abstract": "Content"
         })
         
-        # Reordenamos la estructura final de las columnas
+        # Reordeno las columnas
         noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
-        print(f"\n Procesamiento completado en memoria. Variable 'noticias_NYT' lista con {len(noticias_NYT)} registros.")
+        print(f"\n Procesamiento completado. Variable 'noticias_NYT' lista con {len(noticias_NYT)} registros.")
     else:
-        print("\n[Error Crítico] No se pudo obtener información de ningún mes. Creando DataFrame vacío con estructura.")
+        print("\nNo se pudo obtener información de ningun mes. Creando df vacio")
         noticias_NYT = pd.DataFrame(columns=["Date", "Section", "Title", "Content"])
         
     # Filtro el rango final
@@ -2928,23 +2929,19 @@ def proceso_lento():
     inputs_gramatical_final = inputs_gramatical  
     print("Proceso terminado a tiempo")
 
-# Controlo la duracion de ejecucion
-# hilo = threading.Thread(target=proceso_lento)
-# hilo.daemon = True  
-# hilo.start()
 
-# # Limite de maximo 2 minutos
-# hilo.join(timeout=120)
+# Controlo la duracion de ejecucion
 proceso1 = multiprocessing.Process(target=proceso_lento)
 proceso1.start()
-# Esperar estrictamente 120 segundos (2 minutos)
+# Limite de maximo 2 minutos
 proceso1.join(timeout=120)
 
-# Condicion de tope de tiempo para traer los resultados ya listos
-# if hilo.is_alive():
+# Si pasa de 2 minutos, dejo de ejecutar
 if proceso1.is_alive():
+    # Cierro por completo la ejecucion
     proceso1.terminate()
-    proceso1.join()  # Limpia el proceso de la tabla del sistema operativo
+    proceso1.join() 
+    
     print("\nEl codigo tardo mas de 2 minutos.")
     print("""
     Me salto todo el proceso, porque realmente todo el proceso demora semanas, sino meses, al ejecutarlo con CPU.
@@ -3003,7 +3000,7 @@ def pipeline_codificacion_finbert():
     global inputs_numeros
     # Codificacion de inputs
     # Codifico con booleano a los 3 roles
-    print("Inicio el proceso de codificación")
+    print("\nInicio el proceso de codificacion")
     boolean_cols = ["Agente", "Paciente", "Afectado"]
     boolean_data = inputs_gramatical[boolean_cols].astype(float)
 
@@ -3158,228 +3155,247 @@ def pipeline_codificacion_finbert():
     inputs_numeros = pd.concat(dataframes, axis=1)
     print(f"Inputs totalmente codificados, con shape: {inputs_numeros.shape}")
 
-# Controlo la duracion de ejecucion de la codificacion
-# hilo_codificacion = threading.Thread(target=pipeline_codificacion_finbert)
-# hilo_codificacion.daemon = True
-# hilo_codificacion.start()
 
-# # Limito el tiempo de ejecucion a maximo 2 minutos, porque dura mas de 1 hora
-# hilo_codificacion.join(timeout=120)
+# Controlo la duracion de ejecucion de la codificacion
 proceso2 = multiprocessing.Process(target=pipeline_codificacion_finbert)
 proceso2.start()
 
-# Esperar estrictamente 120 segundos (2 minutos)
+# Limito el tiempo de ejecucion a maximo 2 minutos, porque dura mas de 1 hora
 proceso2.join(timeout=120)
 
-# if hilo_codificacion.is_alive():
 if proceso2.is_alive():
-    # ─── GARANTIZADO: MATAMOS FINBERT AL INSTANTE ANTES DE QUE ACABE ───
+    # Termino la ejecucion de codificacion, dado que paso mas de 2 minutos
     proceso2.terminate()
     proceso2.join()
-    print("\nEste proceso tarda mas de 1 hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona")
-    print("El input totalmente codificado esta en la tabla inputs_numeros en mi dynamodb")
+    print("\nEste proceso de codificacion tarda mas de 1 hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona")
+    print("El input totalmente codificado esta en la tabla inputs_numeros en mi dynamodb. Es una tabla muy pesada: 4gb")
     
 else:
     print(f"Si por algun milagro termina la codificacion en 2 minutos, compruebo que su shape: {inputs_numeros.shape}")
 
 
 
-# # Variable global para guardar las etiquetas obtenidas
-# df_final = None
+# Variable global para guardar las etiquetas obtenidas
+df_final = None
 
-# # Genero las etiquetas 
-# def pipeline_etiquetado_eventos():
-#     global df_final
-#     # Etiquetado
-#     # Agrupo tickers por noticia unica
-#     date_tickers = inputs_gramatical.groupby('Fila Noticia').agg({
-#         'Date': 'first',
-#         'Tickers Mapeados': lambda x: list(x)
-#     }).reset_index()
+# Genero las etiquetas 
+def pipeline_etiquetado_eventos():
+    global df_final
+    
+    print("\nInicio el proceso del etiquetado")
+    # Descargo las tablas de precios de las acciones y el indice
+    precios_cierre_sesion = (
+        get_table_df('period_sesion_close_prices')
+            .assign(Date=lambda x: pd.to_datetime(x['Date']))
+            .set_index('Date')
+            .sort_index()
+    )
+    precios_cierre_sesion = precios_cierre_sesion.astype(float)
 
-#     # Configuro las ventanas e inicio de estas
-#     WINDOWS = {"15m":15, "30m":30, "1h":60, "2h":120, "4h":240, "6h":360, "12h":720}
-#     OFFSETS = {"0m":0, "30m":30, "1h":60}
+    sp500_precio_sesion = (
+        get_table_df('period_sp500_sesion_close_prices')
+        .assign(Date=lambda x: pd.to_datetime(x['Date']))
+        .set_index('Date')
+        .sort_index()
+    )
+    sp500_precio_sesion['SP500'] = sp500_precio_sesion['SP500'].astype(float)
 
-#     # Historico para obtener el beta para la rentabilidad anormal
-#     LOOKBACK = 30 * 390
-#     # Minimo de datos de dicho historico
-#     S_THRESHOLD = 0.7
-#     SP500_COL = "SP500"
+    # Etiquetado
+    # Agrupo tickers por noticia unica
+    date_tickers = inputs_gramatical.groupby('Fila Noticia').agg({
+        'Date': 'first',
+        'Tickers Mapeados': lambda x: list(x)
+    }).reset_index()
 
-#     # Calculo de retornos logaritmicos
-#     def compute_returns(df_prices, sp500_df):
-#         return (
-#             np.log(df_prices / df_prices.shift(1)),
-#             np.log(sp500_df / sp500_df.shift(1))
-#         )
+    # Configuro las ventanas e inicio de estas
+    WINDOWS = {"15m":15, "30m":30, "1h":60, "2h":120, "4h":240, "6h":360, "12h":720}
+    OFFSETS = {"0m":0, "30m":30, "1h":60}
 
-#     # Calculo de CAPM
-#     def estimate_capm(y, x):
-#         mask = (~y.isna()) & (~x.isna())
-#         y, x = y[mask], x[mask]
+    # Historico para obtener el beta para la rentabilidad anormal
+    LOOKBACK = 30 * 390
+    # Minimo de datos de dicho historico
+    S_THRESHOLD = 0.7
+    SP500_COL = "SP500"
 
-#         n = len(y)
-#         if n < LOOKBACK * S_THRESHOLD:
-#             return None, None
+    # Calculo de retornos logaritmicos
+    def compute_returns(df_prices, sp500_df):
+        return (
+            np.log(df_prices / df_prices.shift(1)),
+            np.log(sp500_df / sp500_df.shift(1))
+        )
 
-#         X = np.vstack([np.ones(len(x)), x.values]).T
-#         alpha, beta = np.linalg.lstsq(X, y.values, rcond=None)[0]
+    # Calculo de CAPM
+    def estimate_capm(y, x):
+        mask = (~y.isna()) & (~x.isna())
+        y, x = y[mask], x[mask]
 
-#         sigma = np.std(y.values - (alpha + beta * x.values))
-#         return beta, sigma
+        n = len(y)
+        if n < LOOKBACK * S_THRESHOLD:
+            return None, None
 
-#     # Calculo del event study para diferentes ventas e inicios de estas
-#     def process_event(df_prices, row, ret_prices, ret_market):
+        X = np.vstack([np.ones(len(x)), x.values]).T
+        alpha, beta = np.linalg.lstsq(X, y.values, rcond=None)[0]
 
-#         tickers = row["Tickers Mapeados"]
-#         results = []
+        sigma = np.std(y.values - (alpha + beta * x.values))
+        return beta, sigma
 
-#         for offset_name, offset_min in OFFSETS.items():
+    # Calculo del event study para diferentes ventas e inicios de estas
+    def process_event(df_prices, row, ret_prices, ret_market):
 
-#             t_event = row["Date"] - pd.Timedelta(minutes=offset_min)
+        tickers = row["Tickers Mapeados"]
+        results = []
 
-#             if t_event not in df_prices.index:
-#                 idx = df_prices.index.searchsorted(t_event)
-#                 if idx >= len(df_prices.index):
-#                     continue
-#                 t_event = df_prices.index[idx]
+        for offset_name, offset_min in OFFSETS.items():
 
-#             try:
-#                 event_idx = df_prices.index.get_loc(t_event)
-#             except:
-#                 continue
+            t_event = row["Date"] - pd.Timedelta(minutes=offset_min)
 
-#             start_est = event_idx - LOOKBACK
-#             if start_est < 0:
-#                 continue
+            if t_event not in df_prices.index:
+                idx = df_prices.index.searchsorted(t_event)
+                if idx >= len(df_prices.index):
+                    continue
+                t_event = df_prices.index[idx]
 
-#             x_est = ret_market[SP500_COL].iloc[start_est:event_idx]
+            try:
+                event_idx = df_prices.index.get_loc(t_event)
+            except:
+                continue
 
-#             for ticker in tickers:
+            start_est = event_idx - LOOKBACK
+            if start_est < 0:
+                continue
 
-#                 if ticker not in df_prices.columns:
-#                     continue
+            x_est = ret_market[SP500_COL].iloc[start_est:event_idx]
 
-#                 y_est = ret_prices[ticker].iloc[start_est:event_idx]
+            for ticker in tickers:
 
-#                 beta, sigma = estimate_capm(y_est, x_est)
+                if ticker not in df_prices.columns:
+                    continue
 
-#                 if beta is None:
-#                     continue
+                y_est = ret_prices[ticker].iloc[start_est:event_idx]
 
-#                 for w_name, w_size in WINDOWS.items():
+                beta, sigma = estimate_capm(y_est, x_est)
 
-#                     end = event_idx + w_size
-#                     if end >= len(df_prices):
-#                         continue
+                if beta is None:
+                    continue
 
-#                     y_w = ret_prices[ticker].iloc[event_idx:end]
-#                     x_w = ret_market[SP500_COL].iloc[event_idx:end]
+                for w_name, w_size in WINDOWS.items():
 
-#                     mask = (~y_w.isna()) & (~x_w.isna())
+                    end = event_idx + w_size
+                    if end >= len(df_prices):
+                        continue
 
-#                     if mask.sum() < 0.7 * w_size:
-#                         continue
+                    y_w = ret_prices[ticker].iloc[event_idx:end]
+                    x_w = ret_market[SP500_COL].iloc[event_idx:end]
 
-#                     ar = np.sum(y_w[mask] - beta * x_w[mask])
-#                     n = mask.sum()
+                    mask = (~y_w.isna()) & (~x_w.isna())
 
-#                     t_stat = ar / (sigma * np.sqrt(n)) if sigma > 0 else np.nan
-#                     label = 1 if t_stat > 1.64 else -1 if t_stat < -1.64 else 0
+                    if mask.sum() < 0.7 * w_size:
+                        continue
 
-#                     results.append([
-#                         row["Fila Noticia"],
-#                         row["Date"],
-#                         ticker,
-#                         offset_name,
-#                         w_name,
-#                         beta,
-#                         sigma,
-#                         ar,
-#                         t_stat,
-#                         label
-#                     ])
+                    ar = np.sum(y_w[mask] - beta * x_w[mask])
+                    n = mask.sum()
 
-#         return results
+                    t_stat = ar / (sigma * np.sqrt(n)) if sigma > 0 else np.nan
+                    label = 1 if t_stat > 1.64 else -1 if t_stat < -1.64 else 0
 
-#     # Orquestador para obtener el etiquetado 
-#     def run_event_study(df_prices, df_market, df_news):
+                    results.append([
+                        row["Fila Noticia"],
+                        row["Date"],
+                        ticker,
+                        offset_name,
+                        w_name,
+                        beta,
+                        sigma,
+                        ar,
+                        t_stat,
+                        label
+                    ])
 
-#         ret_prices, ret_market = compute_returns(df_prices, df_market)
+        return results
 
-#         all_results = [
-#             r
-#             for _, row in df_news.iterrows()
-#             for r in process_event(df_prices, row, ret_prices, ret_market)
-#         ]
+    # Orquestador para obtener el etiquetado 
+    def run_event_study(df_prices, df_market, df_news):
 
-#         return pd.DataFrame(all_results, columns=[
-#             "Fila Noticia",
-#             "Date",
-#             "Tickers Mapeados",
-#             "Offset_Inicio",
-#             "Ventana_Size",
-#             "Beta",
-#             "Sigma",
-#             "Retorno Anormal",
-#             "t_stat",
-#             "Etiqueta"
-#         ])
+        ret_prices, ret_market = compute_returns(df_prices, df_market)
 
-#     # Ejecuto el orquestador  
-#     etiquetas = run_event_study(
-#         precios_cierre_sesion,
-#         sp500_precio_sesion,
-#         date_tickers
-#     )
+        all_results = [
+            r
+            for _, row in df_news.iterrows()
+            for r in process_event(df_prices, row, ret_prices, ret_market)
+        ]
 
-#     # Pivoto el df de etiquetas 
-#     etiquetas_pivot = etiquetas.pivot(
-#         index=['Fila Noticia', 'Tickers Mapeados'], 
-#         columns=['Offset_Inicio', 'Ventana_Size'],
-#         values='Etiqueta'
-#     )
+        return pd.DataFrame(all_results, columns=[
+            "Fila Noticia",
+            "Date",
+            "Tickers Mapeados",
+            "Offset_Inicio",
+            "Ventana_Size",
+            "Beta",
+            "Sigma",
+            "Retorno Anormal",
+            "t_stat",
+            "Etiqueta"
+        ])
 
-#     # Renombro las columnas de las etiquetas
-#     etiquetas_pivot.columns = [f'Etiqueta_{off}_{win}' for off, win in etiquetas_pivot.columns]
-#     etiquetas_pivot = etiquetas_pivot.reset_index()
+    # Ejecuto el orquestador  
+    etiquetas = run_event_study(
+        precios_cierre_sesion,
+        sp500_precio_sesion,
+        date_tickers
+    )
 
-#     # Combindo con inputs gramatical
-#     df_final = inputs_gramatical.merge(
-#         etiquetas_pivot,
-#         on=['Fila Noticia', 'Tickers Mapeados'],
-#         how='left'
-#     )
+    # Pivoto el df de etiquetas 
+    etiquetas_pivot = etiquetas.pivot(
+        index=['Fila Noticia', 'Tickers Mapeados'], 
+        columns=['Offset_Inicio', 'Ventana_Size'],
+        values='Etiqueta'
+    )
 
-#     # Reordeno las columnas y genero lista de todas las combinaciones posibles
-#     lista_inicio = ['0m', '30m', '1h']
-#     lista_ventanas = ['15m', '30m', '1h', '2h', '4h', '6h', '12h']
+    # Renombro las columnas de las etiquetas
+    etiquetas_pivot.columns = [f'Etiqueta_{off}_{win}' for off, win in etiquetas_pivot.columns]
+    etiquetas_pivot = etiquetas_pivot.reset_index()
 
-#     cols_etiquetas = [
-#         f'Etiqueta_{off}_{win}' 
-#         for off in lista_inicio 
-#         for win in lista_ventanas 
-#         if f'Etiqueta_{off}_{win}' in df_final.columns
-#     ]
+    # Combindo con inputs gramatical
+    df_final = inputs_gramatical.merge(
+        etiquetas_pivot,
+        on=['Fila Noticia', 'Tickers Mapeados'],
+        how='left'
+    )
 
-#     cols_base = list(inputs_gramatical.columns)
-#     df_final = df_final[cols_base + cols_etiquetas]
+    # Reordeno las columnas y genero lista de todas las combinaciones posibles
+    lista_inicio = ['0m', '30m', '1h']
+    lista_ventanas = ['15m', '30m', '1h', '2h', '4h', '6h', '12h']
 
-#     # Relleno con 0 o NaN las noticias que no tuvieron suficiente datos para la ventana
-#     df_final[cols_etiquetas] = df_final[cols_etiquetas].fillna(0)
-#     print(f"Etiquetado completado a tiempo, reviso su shape: {df_final.shape}")
+    cols_etiquetas = [
+        f'Etiqueta_{off}_{win}' 
+        for off in lista_inicio 
+        for win in lista_ventanas 
+        if f'Etiqueta_{off}_{win}' in df_final.columns
+    ]
 
-# # Controlo la duracion de la generacion de etiquetas
-# hilo_etiquetado = threading.Thread(target=pipeline_etiquetado_eventos)
-# hilo_etiquetado.daemon = True
-# hilo_etiquetado.start()
+    cols_base = list(inputs_gramatical.columns)
+    df_final = df_final[cols_base + cols_etiquetas]
 
-# # Limito a maximo 2 minutos, porque dura mas de media hora realmente
-# hilo_etiquetado.join(timeout=120)
+    # Relleno con 0 o NaN las noticias que no tuvieron suficiente datos para la ventana
+    df_final[cols_etiquetas] = df_final[cols_etiquetas].fillna(0)
+    print(f"Etiquetado completado a tiempo, reviso su shape: {df_final.shape}")
 
-# if hilo_etiquetado.is_alive():
-#     print("\nEste proceso tarda mas de media hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona.")
-#     print("El input totalmente codificado esta en la tabla outputs en mi dynamodb")
-# else:
-#     print(f"Si por algun milagro termina el generado de etiqueta en 2 minutos, compruebo que su shape: {inputs_numeros.shape}")
+# Controlo el tiempo de ejecucion del etiquetado
+proceso3 = multiprocessing.Process(target=pipeline_etiquetado_eventos)
+proceso3.start()
+
+# Limiot a 2 minutos de ejecucion cmo maximo
+proceso3.join(timeout=120)
+
+# Cancelo la ejecucion si pasa de 2 minutos
+if proceso3.is_alive():
+    # Termino de liquidar la ejecucion del etiquetado
+    proceso3.terminate()
+    proceso3.join()
+    print(
+        "\nSolo descargar los precio por acciones tarda mas de 20 minutos y el etiquetado tarda mas de media hora,\n"
+        "y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona."
+    )
+    print("Las etiquetas estan en la tabla outputs en mi dynamodb")
+else:
+    print(f"Si por algun milagro termina el generado de etiqueta en 2 minutos, reviso su shae: {df_final.shape}")
