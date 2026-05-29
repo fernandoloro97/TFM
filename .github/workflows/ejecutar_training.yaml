@@ -100,7 +100,58 @@
 #         run: python src_training/period_morningstar/period_morningstar.py
 
 
-name: Executing Machine Learning Training Pipeline
+# name: Executing Machine Learning Training Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main
+#   workflow_dispatch: 
+
+# jobs:
+#   ejecutar-pipeline:
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.11'
+#           cache: 'pip' # Acelera futuras ejecuciones guardando las librerías
+
+#       - name: Install System Dependencies
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y build-essential
+
+#       - name: Install Heavy AI and Data Dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+          
+#           # Instalación directa y limpia de todo tu stack tecnológico
+#           pip install pandas numpy boto3 requests rapidfuzz scikit-learn \
+#                       torch transformers sentence-transformers ctransformers spacy groq --no-cache-dir
+
+#       - name: Download NLP Models
+#         run: |
+#           # Descarga el modelo de procesamiento de lenguaje natural
+#           python -m spacy download en_core_web_sm
+
+#       - name: Run Training Input-Output Script
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+#           # Evitamos sobrecargar los hilos paralelos de CPU en el servidor virtual
+#           OMP_NUM_THREADS: 1
+#           MKL_NUM_THREADS: 1
+#         run: python src_training/analisis_hasta_inputs_outputs/analisis_hasta_inputs_outputs.py
+
+
+name: Executing Trading Machine Learning Training Pipeline
 
 on:
   push:
@@ -114,10 +165,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip' # Acelera futuras ejecuciones guardando las librerías
@@ -125,30 +176,28 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential libgomp1
 
-      - name: Install Heavy AI and Data Dependencies
+      - name: Install Trading AI and Data Dependencies
         run: |
           python -m pip install --upgrade pip
           
-          # Instalación directa y limpia de todo tu stack tecnológico
-          pip install pandas numpy boto3 requests rapidfuzz scikit-learn \
-                      torch transformers sentence-transformers ctransformers spacy groq --no-cache-dir
+          # 1. Instalamos PyTorch versión CPU (ahorra 4GB de descarga y RAM en el runner)
+          pip install torch --index-url https://pytorch.org --no-cache-dir
+          
+          # 2. Instalamos el resto de librerías de Machine Learning y AWS necesarias
+          pip install pandas numpy boto3 scikit-learn lightgbm xgboost --no-cache-dir
 
-      - name: Download NLP Models
-        run: |
-          # Descarga el modelo de procesamiento de lenguaje natural
-          python -m spacy download en_core_web_sm
-
-      - name: Run Training Input-Output Script
+      - name: Run Trading Training and Inference Script
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
-          # Evitamos sobrecargar los hilos paralelos de CPU en el servidor virtual
+          # Control estricto de hilos para evitar bloqueos por falta de CPUs
           OMP_NUM_THREADS: 1
           MKL_NUM_THREADS: 1
-        run: python src_training/analisis_hasta_inputs_outputs/analisis_hasta_inputs_outputs.py
+          OPENBLAS_NUM_THREADS: 1
+        run: python src_training/train_inference_trading/train_inference_trading.py
 
 
 # on:
