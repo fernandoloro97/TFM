@@ -30,106 +30,31 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from transformers import AutoTokenizer, AutoModel
 from torch.utils.data import DataLoader, TensorDataset
-from concurrent.futures import ThreadPoolExecutor
 
-# Configuración de AWS
+
+# Configuracion de AWS 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 s3 = boto3.client('s3')
 
+# Transformo la tabla de dynmodb a dataframe
 def get_table_df(table_name):
-    """Descarga una tabla optimizando la memoria RAM de forma inmediata."""
-    print(f"[DynamoDB] Iniciando descarga de: {table_name}", flush=True)
     table = dynamodb.Table(table_name)
-    
     response = table.scan()
-    chunks = [pd.DataFrame(response['Items'])]
-    total_filas = len(response['Items'])
+    data = response['Items']
     
+    # Manejo la contiuidad para tablas grandes
     while 'LastEvaluatedKey' in response:
         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-        if response['Items']:
-            chunks.append(pd.DataFrame(response['Items']))
-            total_filas += len(response['Items'])
-            # Imprime progreso para que veas en GitHub Actions que el script sigue vivo
-            if total_filas % 50000 == 0:
-                print(f"  -> {table_name}: {total_filas} filas procesadas...", flush=True)
+        data.extend(response['Items'])
     
-    print(f"[OK] Finalizada: {table_name} ({total_filas} filas)", flush=True)
-    # Concatenamos los bloques eficientemente
-    return pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+    return pd.DataFrame(data)
 
-# --- DESCARGA EN PARALELO (El truco maestro) ---
-tablas_a_descargar = [
-    'sp500_period_historic',
-    'period_wikipedia_keys',
-    'official_morningstar',
-    'period_companys_morningstar_sectors',
-    'inputs_textos',
-    'period_sesion_close_prices',
-    'period_sp500_sesion_close_prices'
-]
-
-print("Iniciando descarga masiva multihilo...", flush=True)
-resultados = {}
-
-# Ejecutamos la descarga de las tablas simultáneamente usando hilos
-with ThreadPoolExecutor(max_workers=4) as executor:
-    futures = {executor.submit(get_table_df, name): name for name in tablas_a_descargar}
-    for future in futures:
-        nombre_tabla = futures[future]
-        resultados[nombre_tabla] = future.result()
-
-print("¡Todas las tablas han sido descargadas! Procesando dataframes...", flush=True)
-
-# --- ASIGNACIÓN Y POST-PROCESAMIENTO ---
-composicion_sp500_actualizado = resultados['sp500_period_historic']
-wikipedia_actualizado = resultados['period_wikipedia_keys']
-morningstar = resultados['official_morningstar']
-empresas_sectores_morningstar = resultados['period_companys_morningstar_sectors']
-inputs_texto_brutos = resultados['inputs_textos']
-
-# Procesamiento rápido de precios_cierre_sesion
-df_precios = resultados['period_sesion_close_prices']
-if not df_precios.empty:
-    df_precios['Date'] = pd.to_datetime(df_precios['Date'])
-    precios_cierre_sesion = df_precios.set_index('Date').sort_index().apply(pd.to_numeric, errors='coerce')
-else:
-    precios_cierre_sesion = pd.DataFrame()
-
-# Procesamiento rápido de sp500_precio_sesion
-df_sp500 = resultados['period_sp500_sesion_close_prices']
-if not df_sp500.empty:
-    df_sp500['Date'] = pd.to_datetime(df_sp500['Date'])
-    sp500_precio_sesion = df_sp500.set_index('Date').sort_index()
-    if 'SP500' in sp500_precio_sesion.columns:
-        sp500_precio_sesion['SP500'] = pd.to_numeric(sp500_precio_sesion['SP500'], errors='coerce')
-else:
-    sp500_precio_sesion = pd.DataFrame()
-
-print("Procesamiento completado. Listo para el entrenamiento.", flush=True)
-# # Configuracion de AWS 
-# dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-# s3 = boto3.client('s3')
-
-# # Transformo la tabla de dynmodb a dataframe
-# def get_table_df(table_name):
-#     table = dynamodb.Table(table_name)
-#     response = table.scan()
-#     data = response['Items']
-    
-#     # Manejo la contiuidad para tablas grandes
-#     while 'LastEvaluatedKey' in response:
-#         response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-#         data.extend(response['Items'])
-    
-#     return pd.DataFrame(data)
-
-# # Leo tablas de interes del dynamodb
-# composicion_sp500_actualizado = get_table_df('sp500_period_historic')
-# wikipedia_actualizado = get_table_df('period_wikipedia_keys')
-# morningstar = get_table_df('official_morningstar')
-# empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
-# inputs_texto_brutos = get_table_df('inputs_textos')
+# Leo tablas de interes del dynamodb
+composicion_sp500_actualizado = get_table_df('sp500_period_historic')
+wikipedia_actualizado = get_table_df('period_wikipedia_keys')
+morningstar = get_table_df('official_morningstar')
+empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
+inputs_texto_brutos = get_table_df('inputs_textos')
 # precios_cierre_sesion = (
 #     get_table_df('period_sesion_close_prices')
 #     .assign(Date=lambda x: pd.to_datetime(x['Date']))
@@ -3213,202 +3138,202 @@ else:
 
 
 
-# Variable global para guardar las etiquetas obtenidas
-df_final = None
+# # Variable global para guardar las etiquetas obtenidas
+# df_final = None
 
-# Genero las etiquetas 
-def pipeline_etiquetado_eventos():
-    global df_final
-    # Etiquetado
-    # Agrupo tickers por noticia unica
-    date_tickers = inputs_gramatical.groupby('Fila Noticia').agg({
-        'Date': 'first',
-        'Tickers Mapeados': lambda x: list(x)
-    }).reset_index()
+# # Genero las etiquetas 
+# def pipeline_etiquetado_eventos():
+#     global df_final
+#     # Etiquetado
+#     # Agrupo tickers por noticia unica
+#     date_tickers = inputs_gramatical.groupby('Fila Noticia').agg({
+#         'Date': 'first',
+#         'Tickers Mapeados': lambda x: list(x)
+#     }).reset_index()
 
-    # Configuro las ventanas e inicio de estas
-    WINDOWS = {"15m":15, "30m":30, "1h":60, "2h":120, "4h":240, "6h":360, "12h":720}
-    OFFSETS = {"0m":0, "30m":30, "1h":60}
+#     # Configuro las ventanas e inicio de estas
+#     WINDOWS = {"15m":15, "30m":30, "1h":60, "2h":120, "4h":240, "6h":360, "12h":720}
+#     OFFSETS = {"0m":0, "30m":30, "1h":60}
 
-    # Historico para obtener el beta para la rentabilidad anormal
-    LOOKBACK = 30 * 390
-    # Minimo de datos de dicho historico
-    S_THRESHOLD = 0.7
-    SP500_COL = "SP500"
+#     # Historico para obtener el beta para la rentabilidad anormal
+#     LOOKBACK = 30 * 390
+#     # Minimo de datos de dicho historico
+#     S_THRESHOLD = 0.7
+#     SP500_COL = "SP500"
 
-    # Calculo de retornos logaritmicos
-    def compute_returns(df_prices, sp500_df):
-        return (
-            np.log(df_prices / df_prices.shift(1)),
-            np.log(sp500_df / sp500_df.shift(1))
-        )
+#     # Calculo de retornos logaritmicos
+#     def compute_returns(df_prices, sp500_df):
+#         return (
+#             np.log(df_prices / df_prices.shift(1)),
+#             np.log(sp500_df / sp500_df.shift(1))
+#         )
 
-    # Calculo de CAPM
-    def estimate_capm(y, x):
-        mask = (~y.isna()) & (~x.isna())
-        y, x = y[mask], x[mask]
+#     # Calculo de CAPM
+#     def estimate_capm(y, x):
+#         mask = (~y.isna()) & (~x.isna())
+#         y, x = y[mask], x[mask]
 
-        n = len(y)
-        if n < LOOKBACK * S_THRESHOLD:
-            return None, None
+#         n = len(y)
+#         if n < LOOKBACK * S_THRESHOLD:
+#             return None, None
 
-        X = np.vstack([np.ones(len(x)), x.values]).T
-        alpha, beta = np.linalg.lstsq(X, y.values, rcond=None)[0]
+#         X = np.vstack([np.ones(len(x)), x.values]).T
+#         alpha, beta = np.linalg.lstsq(X, y.values, rcond=None)[0]
 
-        sigma = np.std(y.values - (alpha + beta * x.values))
-        return beta, sigma
+#         sigma = np.std(y.values - (alpha + beta * x.values))
+#         return beta, sigma
 
-    # Calculo del event study para diferentes ventas e inicios de estas
-    def process_event(df_prices, row, ret_prices, ret_market):
+#     # Calculo del event study para diferentes ventas e inicios de estas
+#     def process_event(df_prices, row, ret_prices, ret_market):
 
-        tickers = row["Tickers Mapeados"]
-        results = []
+#         tickers = row["Tickers Mapeados"]
+#         results = []
 
-        for offset_name, offset_min in OFFSETS.items():
+#         for offset_name, offset_min in OFFSETS.items():
 
-            t_event = row["Date"] - pd.Timedelta(minutes=offset_min)
+#             t_event = row["Date"] - pd.Timedelta(minutes=offset_min)
 
-            if t_event not in df_prices.index:
-                idx = df_prices.index.searchsorted(t_event)
-                if idx >= len(df_prices.index):
-                    continue
-                t_event = df_prices.index[idx]
+#             if t_event not in df_prices.index:
+#                 idx = df_prices.index.searchsorted(t_event)
+#                 if idx >= len(df_prices.index):
+#                     continue
+#                 t_event = df_prices.index[idx]
 
-            try:
-                event_idx = df_prices.index.get_loc(t_event)
-            except:
-                continue
+#             try:
+#                 event_idx = df_prices.index.get_loc(t_event)
+#             except:
+#                 continue
 
-            start_est = event_idx - LOOKBACK
-            if start_est < 0:
-                continue
+#             start_est = event_idx - LOOKBACK
+#             if start_est < 0:
+#                 continue
 
-            x_est = ret_market[SP500_COL].iloc[start_est:event_idx]
+#             x_est = ret_market[SP500_COL].iloc[start_est:event_idx]
 
-            for ticker in tickers:
+#             for ticker in tickers:
 
-                if ticker not in df_prices.columns:
-                    continue
+#                 if ticker not in df_prices.columns:
+#                     continue
 
-                y_est = ret_prices[ticker].iloc[start_est:event_idx]
+#                 y_est = ret_prices[ticker].iloc[start_est:event_idx]
 
-                beta, sigma = estimate_capm(y_est, x_est)
+#                 beta, sigma = estimate_capm(y_est, x_est)
 
-                if beta is None:
-                    continue
+#                 if beta is None:
+#                     continue
 
-                for w_name, w_size in WINDOWS.items():
+#                 for w_name, w_size in WINDOWS.items():
 
-                    end = event_idx + w_size
-                    if end >= len(df_prices):
-                        continue
+#                     end = event_idx + w_size
+#                     if end >= len(df_prices):
+#                         continue
 
-                    y_w = ret_prices[ticker].iloc[event_idx:end]
-                    x_w = ret_market[SP500_COL].iloc[event_idx:end]
+#                     y_w = ret_prices[ticker].iloc[event_idx:end]
+#                     x_w = ret_market[SP500_COL].iloc[event_idx:end]
 
-                    mask = (~y_w.isna()) & (~x_w.isna())
+#                     mask = (~y_w.isna()) & (~x_w.isna())
 
-                    if mask.sum() < 0.7 * w_size:
-                        continue
+#                     if mask.sum() < 0.7 * w_size:
+#                         continue
 
-                    ar = np.sum(y_w[mask] - beta * x_w[mask])
-                    n = mask.sum()
+#                     ar = np.sum(y_w[mask] - beta * x_w[mask])
+#                     n = mask.sum()
 
-                    t_stat = ar / (sigma * np.sqrt(n)) if sigma > 0 else np.nan
-                    label = 1 if t_stat > 1.64 else -1 if t_stat < -1.64 else 0
+#                     t_stat = ar / (sigma * np.sqrt(n)) if sigma > 0 else np.nan
+#                     label = 1 if t_stat > 1.64 else -1 if t_stat < -1.64 else 0
 
-                    results.append([
-                        row["Fila Noticia"],
-                        row["Date"],
-                        ticker,
-                        offset_name,
-                        w_name,
-                        beta,
-                        sigma,
-                        ar,
-                        t_stat,
-                        label
-                    ])
+#                     results.append([
+#                         row["Fila Noticia"],
+#                         row["Date"],
+#                         ticker,
+#                         offset_name,
+#                         w_name,
+#                         beta,
+#                         sigma,
+#                         ar,
+#                         t_stat,
+#                         label
+#                     ])
 
-        return results
+#         return results
 
-    # Orquestador para obtener el etiquetado 
-    def run_event_study(df_prices, df_market, df_news):
+#     # Orquestador para obtener el etiquetado 
+#     def run_event_study(df_prices, df_market, df_news):
 
-        ret_prices, ret_market = compute_returns(df_prices, df_market)
+#         ret_prices, ret_market = compute_returns(df_prices, df_market)
 
-        all_results = [
-            r
-            for _, row in df_news.iterrows()
-            for r in process_event(df_prices, row, ret_prices, ret_market)
-        ]
+#         all_results = [
+#             r
+#             for _, row in df_news.iterrows()
+#             for r in process_event(df_prices, row, ret_prices, ret_market)
+#         ]
 
-        return pd.DataFrame(all_results, columns=[
-            "Fila Noticia",
-            "Date",
-            "Tickers Mapeados",
-            "Offset_Inicio",
-            "Ventana_Size",
-            "Beta",
-            "Sigma",
-            "Retorno Anormal",
-            "t_stat",
-            "Etiqueta"
-        ])
+#         return pd.DataFrame(all_results, columns=[
+#             "Fila Noticia",
+#             "Date",
+#             "Tickers Mapeados",
+#             "Offset_Inicio",
+#             "Ventana_Size",
+#             "Beta",
+#             "Sigma",
+#             "Retorno Anormal",
+#             "t_stat",
+#             "Etiqueta"
+#         ])
 
-    # Ejecuto el orquestador  
-    etiquetas = run_event_study(
-        precios_cierre_sesion,
-        sp500_precio_sesion,
-        date_tickers
-    )
+#     # Ejecuto el orquestador  
+#     etiquetas = run_event_study(
+#         precios_cierre_sesion,
+#         sp500_precio_sesion,
+#         date_tickers
+#     )
 
-    # Pivoto el df de etiquetas 
-    etiquetas_pivot = etiquetas.pivot(
-        index=['Fila Noticia', 'Tickers Mapeados'], 
-        columns=['Offset_Inicio', 'Ventana_Size'],
-        values='Etiqueta'
-    )
+#     # Pivoto el df de etiquetas 
+#     etiquetas_pivot = etiquetas.pivot(
+#         index=['Fila Noticia', 'Tickers Mapeados'], 
+#         columns=['Offset_Inicio', 'Ventana_Size'],
+#         values='Etiqueta'
+#     )
 
-    # Renombro las columnas de las etiquetas
-    etiquetas_pivot.columns = [f'Etiqueta_{off}_{win}' for off, win in etiquetas_pivot.columns]
-    etiquetas_pivot = etiquetas_pivot.reset_index()
+#     # Renombro las columnas de las etiquetas
+#     etiquetas_pivot.columns = [f'Etiqueta_{off}_{win}' for off, win in etiquetas_pivot.columns]
+#     etiquetas_pivot = etiquetas_pivot.reset_index()
 
-    # Combindo con inputs gramatical
-    df_final = inputs_gramatical.merge(
-        etiquetas_pivot,
-        on=['Fila Noticia', 'Tickers Mapeados'],
-        how='left'
-    )
+#     # Combindo con inputs gramatical
+#     df_final = inputs_gramatical.merge(
+#         etiquetas_pivot,
+#         on=['Fila Noticia', 'Tickers Mapeados'],
+#         how='left'
+#     )
 
-    # Reordeno las columnas y genero lista de todas las combinaciones posibles
-    lista_inicio = ['0m', '30m', '1h']
-    lista_ventanas = ['15m', '30m', '1h', '2h', '4h', '6h', '12h']
+#     # Reordeno las columnas y genero lista de todas las combinaciones posibles
+#     lista_inicio = ['0m', '30m', '1h']
+#     lista_ventanas = ['15m', '30m', '1h', '2h', '4h', '6h', '12h']
 
-    cols_etiquetas = [
-        f'Etiqueta_{off}_{win}' 
-        for off in lista_inicio 
-        for win in lista_ventanas 
-        if f'Etiqueta_{off}_{win}' in df_final.columns
-    ]
+#     cols_etiquetas = [
+#         f'Etiqueta_{off}_{win}' 
+#         for off in lista_inicio 
+#         for win in lista_ventanas 
+#         if f'Etiqueta_{off}_{win}' in df_final.columns
+#     ]
 
-    cols_base = list(inputs_gramatical.columns)
-    df_final = df_final[cols_base + cols_etiquetas]
+#     cols_base = list(inputs_gramatical.columns)
+#     df_final = df_final[cols_base + cols_etiquetas]
 
-    # Relleno con 0 o NaN las noticias que no tuvieron suficiente datos para la ventana
-    df_final[cols_etiquetas] = df_final[cols_etiquetas].fillna(0)
-    print(f"Etiquetado completado a tiempo, reviso su shape: {df_final.shape}")
+#     # Relleno con 0 o NaN las noticias que no tuvieron suficiente datos para la ventana
+#     df_final[cols_etiquetas] = df_final[cols_etiquetas].fillna(0)
+#     print(f"Etiquetado completado a tiempo, reviso su shape: {df_final.shape}")
 
-# Controlo la duracion de la generacion de etiquetas
-hilo_etiquetado = threading.Thread(target=pipeline_etiquetado_eventos)
-hilo_etiquetado.daemon = True
-hilo_etiquetado.start()
+# # Controlo la duracion de la generacion de etiquetas
+# hilo_etiquetado = threading.Thread(target=pipeline_etiquetado_eventos)
+# hilo_etiquetado.daemon = True
+# hilo_etiquetado.start()
 
-# Limito a maximo 2 minutos, porque dura mas de media hora realmente
-hilo_etiquetado.join(timeout=120)
+# # Limito a maximo 2 minutos, porque dura mas de media hora realmente
+# hilo_etiquetado.join(timeout=120)
 
-if hilo_etiquetado.is_alive():
-    print("\nEste proceso tarda mas de media hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona.")
-    print("El input totalmente codificado esta en la tabla outputs en mi dynamodb")
-else:
-    print(f"Si por algun milagro termina el generado de etiqueta en 2 minutos, compruebo que su shape: {inputs_numeros.shape}")
+# if hilo_etiquetado.is_alive():
+#     print("\nEste proceso tarda mas de media hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona.")
+#     print("El input totalmente codificado esta en la tabla outputs en mi dynamodb")
+# else:
+#     print(f"Si por algun milagro termina el generado de etiqueta en 2 minutos, compruebo que su shape: {inputs_numeros.shape}")
