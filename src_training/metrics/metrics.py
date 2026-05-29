@@ -33,7 +33,7 @@ sp500_precio_sesion['SP500'] = sp500_precio_sesion['SP500'].astype(float)
 
 # Fijo los nombres del bucket y pickle donde estan las inferencias
 NOMBRE_BUCKET = 'top20-trading-results'
-NOMBRE_ARCHIVO = 'resutados_backtest_completo.pkl'
+NOMBRE_ARCHIVO = 'resultados_backtest_completo.pkl'
 
 response = s3.get_object(Bucket=NOMBRE_BUCKET, Key=NOMBRE_ARCHIVO)
 archivo_bytes = response['Body'].read()
