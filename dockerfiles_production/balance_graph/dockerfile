@@ -7,12 +7,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiamos usando las rutas relativas desde la raíz del proyecto
-COPY src/balance_graph/requirements.txt .
+# Copio la ruta de las librerias necesarias
+COPY src_production/balance_graph/requirements.txt .
+
+# Instalo las librerias
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/balance_graph/balance_graph.py .
+# Copio el codigo python de interes
+COPY src_production/balance_graph/balance_graph.py .
 
+# Puerto
 EXPOSE 8501
 
 ENTRYPOINT ["streamlit", "run", "balance_graph.py", "--server.port=8501", "--server.address=0.0.0.0"]

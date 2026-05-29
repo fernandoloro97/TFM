@@ -150,7 +150,6 @@ print(f"Fecha de hoy: {hoy.strftime('%Y-%m-%d')} (día de la semana: {dia_semana
 if dia_semana == 0:
     # Si es lunes, retrocedo 3 dias para cubrir el fin de semana
     dias_atras = 3
-    print("⏰ Detectado ejecución de Lunes. Extrayendo histórico acumulado del fin de semana (Viernes-Lunes).")
 else:
     # Si no es lunes, solo retrocedo un dia
     dias_atras = 1
@@ -198,7 +197,7 @@ black_list = [
 ]
 
 # Quito las noticias ruidosas
-relevant_last_news = last_news[~last_news['Section'].isin(black_list)]
+relevant_last_news = unique_news[~unique_news['Section'].isin(black_list)]
 
 # Reseteo indice
 relevant_last_news = relevant_last_news.reset_index(drop=True)

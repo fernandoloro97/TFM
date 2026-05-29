@@ -1,8 +1,13 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-COPY src/update_wikipedia_keys/requirements.txt .
+# Copio el codigo con las librerias a instalar
+COPY src_production/update_wikipedia_keys/requirements.txt .
+
+# Instalo las librerias
 RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
-COPY src/update_wikipedia_keys/update_wikipedia_keys.py ${LAMBDA_TASK_ROOT}
+# Copio el archivo con el codigo python
+COPY src_production/update_wikipedia_keys/update_wikipedia_keys.py ${LAMBDA_TASK_ROOT}
 
+# Nombre del archivo de dicho archivo con el codigo
 CMD [ "update_wikipedia_keys.handler" ]

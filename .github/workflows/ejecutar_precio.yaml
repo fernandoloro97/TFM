@@ -45,39 +45,39 @@
 
 
 
-name: Ejecucion diaria de precios y volumenes
+# name: Ejecucion diaria de precios y volumenes
 
-on:
-  # Ejecuto de lunes a viernes a las 23 horas españa
-  schedule:
-    - cron: '0 21 * * 1-5'
+# on:
+#   # Ejecuto de lunes a viernes a las 23 horas españa
+#   schedule:
+#     - cron: '0 21 * * 1-5'
   
-  workflow_dispatch: 
+#   workflow_dispatch: 
 
-jobs:
-  ejecutar-script:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+# jobs:
+#   ejecutar-script:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+#       - name: Setup Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install pandas boto3 requests pytz
+#       - name: Install dependencies
+#         run: |
+#           pip install pandas boto3 requests pytz
 
-      - name: Run Script
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          API_KEY: ${{ secrets.API_KEY }}
-          API_SECRET: ${{ secrets.API_SECRET }}
-        run: python src_production/prices_and_volumes/prices_and_volumes_github.py
+#       - name: Run Script
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_DEFAULT_REGION: us-east-1
+#           API_KEY: ${{ secrets.API_KEY }}
+#           API_SECRET: ${{ secrets.API_SECRET }}
+#         run: python src_production/prices_and_volumes/prices_and_volumes_github.py
 
 
 
@@ -235,12 +235,12 @@ jobs:
 # name: Deploy Balance Graph to ECR
 
 # Se desactiva el push automático y se cambia a ejecución manual
-# on:
-#   workflow_dispatch:
+on:
+  workflow_dispatch:
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-#     steps:
-#     - name: Checkout Code
-#       run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      run: echo "Workflow desactivado temporalmente"  # <--- CORREGIDO AQUÍ

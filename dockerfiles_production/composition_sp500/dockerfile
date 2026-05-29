@@ -1,13 +1,13 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# Copiamos el archivo de requerimientos
-COPY src/composition_sp500/requirements.txt .
+# Copio el archivo con las librerias a instalar
+COPY src_production/composition_sp500/requirements.txt .
 
-# Instalamos usando el --target que te funcionó en el otro proyecto
+# Instalo las librerias 
 RUN pip install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
-# Copiamos tu script
-COPY src/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
+# Copio el archivo del codigo python
+COPY src_production/composition_sp500/composition_sp500.py ${LAMBDA_TASK_ROOT}
 
-# El handler debe ser NOMBRE_ARCHIVO.handler
+# Nombre de dicho codigo
 CMD [ "composition_sp500.handler" ]

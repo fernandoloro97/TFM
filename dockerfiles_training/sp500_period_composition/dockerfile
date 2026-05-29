@@ -1,6 +1,6 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# Copi el archivo de requirements
+# Copio el archivo de requirements
 COPY src_training/sp500_period_composition/requirements.txt .
 
 # Instalo las librerias necesarias
