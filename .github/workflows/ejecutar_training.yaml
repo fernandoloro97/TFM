@@ -120,7 +120,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          cache: 'pip' 
+          cache: 'pip' # Acelera futuras ejecuciones guardando las librerías
 
       - name: Install System Dependencies
         run: |
@@ -130,16 +130,14 @@ jobs:
       - name: Install Heavy AI and Data Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Instalamos PyTorch versión CPU para evitar descargas masivas de CUDA
-          pip install torch --index-url https://pytorch.org --no-cache-dir
           
-          # Instalamos el grueso de tus librerías de manipulación de datos e IA (sin groq)
+          # Instalación directa y limpia de todo tu stack tecnológico
           pip install pandas numpy boto3 requests rapidfuzz scikit-learn \
-                      transformers sentence-transformers ctransformers spacy --no-cache-dir
+                      torch transformers sentence-transformers ctransformers spacy --no-cache-dir
 
       - name: Download NLP Models
         run: |
-          # Descarga el modelo base de SpaCy por si tu script lo utiliza
+          # Descarga el modelo de procesamiento de lenguaje natural
           python -m spacy download en_core_web_sm
 
       - name: Run Training Input-Output Script
@@ -147,6 +145,9 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
+          # Evitamos sobrecargar los hilos paralelos de CPU en el servidor virtual
+          OMP_NUM_THREADS: 1
+          MKL_NUM_THREADS: 1
         run: python src_training/analisis_hasta_inputs_outputs/analisis_hasta_inputs_outputs.py
 
 
