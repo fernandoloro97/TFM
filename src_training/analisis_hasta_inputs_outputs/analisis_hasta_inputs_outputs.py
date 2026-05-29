@@ -11,6 +11,7 @@ import boto3
 import threading
 import pandas as pd
 import numpy as np
+import multiprocessing
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -56,62 +57,6 @@ morningstar = get_table_df('official_morningstar')
 empresas_sectores_morningstar = get_table_df('period_companys_morningstar_sectors')
 inputs_texto_brutos = get_table_df('inputs_textos')
 
-
-# # Descargo mensualmente las noticias del New York Times
-# def procesar_mes(year, month):
-#     path = f"nyt_noticias/{year}/{year}_{month:02d}.json"
-    
-#     with open(path, 'r', encoding='utf-8') as f:
-#         data = json.load(f)
-    
-#     df = pd.json_normalize(data)
-    
-#     # Filtro solo articulos
-#     df = df[df["document_type"].str.lower() == "article"].copy()
-
-#     df = df[["pub_date", "section_name", "headline.main", "abstract"]]
-    
-#     # Ajusto la hora a Nueva Tork
-#     df["Date"] = (
-#         pd.to_datetime(df["pub_date"], utc=True, format='ISO8601')
-#         .dt.tz_convert(ZoneInfo("America/New_York"))
-#         .dt.tz_localize(None)
-#     )
-    
-#     df = df.drop(columns=["pub_date"])
-    
-#     return df
-
-# # Traigo los meses a procesar para todo el periodo de analisis
-# meses_a_procesar = []
-# for year in range(2021, 2026):
-#     for month in range(1, 13):
-#         meses_a_procesar.append((year, month))
-# meses_a_procesar.append((2026, 1))
-
-# # Teniendo todos los meses, ahora si ejecuto para descargar las noticias
-# dfs = []
-# for year, month in meses_a_procesar:
-#     print(f"Procesando {year}/{month:02d}", end=" ")
-#     df_mes = procesar_mes(year, month)
-#     print(f"{len(df_mes)} artículos.")
-#     dfs.append(df_mes)
-
-# # Uno todos los meses
-# noticias_NYT = pd.concat(dfs, ignore_index=True)
-
-# # Renombro as columnas
-# noticias_NYT = noticias_NYT.rename(columns={
-#     "section_name": "Section",
-#     "headline.main": "Title",
-#     "abstract": "Content"
-# })
-
-# # Reordenar columnas
-# noticias_NYT = noticias_NYT[["Date", "Section", "Title", "Content"]]
-
-# Guardo el cancelador de threading
-cancelar_descarga = threading.Event()
 
 # Creo una variable global para guardar despues el resultado final de todo el proceso lento
 inputs_gramatical_final = None
@@ -2984,16 +2929,22 @@ def proceso_lento():
     print("Proceso terminado a tiempo")
 
 # Controlo la duracion de ejecucion
-hilo = threading.Thread(target=proceso_lento)
-hilo.daemon = True  
-hilo.start()
+# hilo = threading.Thread(target=proceso_lento)
+# hilo.daemon = True  
+# hilo.start()
 
-# Limite de maximo 2 minutos
-hilo.join(timeout=120)
+# # Limite de maximo 2 minutos
+# hilo.join(timeout=120)
+proceso1 = multiprocessing.Process(target=proceso_lento)
+proceso1.start()
+# Esperar estrictamente 120 segundos (2 minutos)
+proceso1.join(timeout=120)
 
 # Condicion de tope de tiempo para traer los resultados ya listos
-if hilo.is_alive():
-    cancelar_descarga.set() 
+# if hilo.is_alive():
+if proceso1.is_alive():
+    proceso1.terminate()
+    proceso1.join()  # Limpia el proceso de la tabla del sistema operativo
     print("\nEl codigo tardo mas de 2 minutos.")
     print("""
     Me salto todo el proceso, porque realmente todo el proceso demora semanas, sino meses, al ejecutarlo con CPU.
@@ -3208,14 +3159,23 @@ def pipeline_codificacion_finbert():
     print(f"Inputs totalmente codificados, con shape: {inputs_numeros.shape}")
 
 # Controlo la duracion de ejecucion de la codificacion
-hilo_codificacion = threading.Thread(target=pipeline_codificacion_finbert)
-hilo_codificacion.daemon = True
-hilo_codificacion.start()
+# hilo_codificacion = threading.Thread(target=pipeline_codificacion_finbert)
+# hilo_codificacion.daemon = True
+# hilo_codificacion.start()
 
-# Limito el tiempo de ejecucion a maximo 2 minutos, porque dura mas de 1 hora
-hilo_codificacion.join(timeout=120)
+# # Limito el tiempo de ejecucion a maximo 2 minutos, porque dura mas de 1 hora
+# hilo_codificacion.join(timeout=120)
+proceso2 = multiprocessing.Process(target=pipeline_codificacion_finbert)
+proceso2.start()
 
-if hilo_codificacion.is_alive():
+# Esperar estrictamente 120 segundos (2 minutos)
+proceso2.join(timeout=120)
+
+# if hilo_codificacion.is_alive():
+if proceso2.is_alive():
+    # ─── GARANTIZADO: MATAMOS FINBERT AL INSTANTE ANTES DE QUE ACABE ───
+    proceso2.terminate()
+    proceso2.join()
     print("\nEste proceso tarda mas de 1 hora, y solo deje ejecutar maximo 2 minutos para que se muestre que realmente funciona")
     print("El input totalmente codificado esta en la tabla inputs_numeros en mi dynamodb")
     
