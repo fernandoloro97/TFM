@@ -49,11 +49,21 @@ NOMBRE_ARCHIVO_CAPITALES = 'resultados_backtest_capitales.pkl'
 response_capitales = s3.get_object(Bucket=NOMBRE_BUCKET, Key=NOMBRE_ARCHIVO)
 archivo_bytes_capitales= response_capitales['Body'].read()
 
+# Fijo los nombres del bucket y pickle donde estan las inferencias
+NOMBRE_BUCKET_HISTORIC = 'historic-trading-results'
+NOMBRE_ARCHIVO_HISTORIC = 'resultados_historicos.pkl'
+
+response_historico = s3.get_object(Bucket=NOMBRE_BUCKET_HISTORIC, Key=NOMBRE_ARCHIVO_HISTORIC)
+archivo_bytes_historico = response_historico['Body'].read()
+
+
 # Reconstruyo el diccionario de pickle
 resultados_mercado = pickle.loads(archivo_bytes)
 resultados_capitales = pickle.loads(archivo_bytes_capitales)
+resultados_historicos = pickle.loads(archivo_bytes_historico)
 print(f"Cargue el pickle  de 20 modelos exitosamentes, donde tengo cargadas en el diccionario: {len(resultados_mercado)} elementos", flush=True)
 print(f"Cargue el pickle  de capitales exitosamentes, donde tengo cargadas en el diccionario: {len(resultados_capitales)} elementos", flush=True)
+print(f"Cargue el pickle  de historicos exitosamentes, donde tengo cargadas en el diccionario: {len(resultados_historicos)} elementos", flush=True)
 
 
 
@@ -597,6 +607,191 @@ metricas_distintos_capitales = metricas_distintos_capitales.sort_values(
 ).reset_index(drop=True)
 
 print(f"\nMetricas del sistema trading de distints capitales del mejor modelo: {metricas_distintos_capitales.shape}")
+
+
+
+
+print("\nInicio el calculos de metricas para datos historicos")
+# Listado para recopilas las metricas
+resultados_metricas_historicas = []
+
+# Obtengo el calendario de dias de sesion abierta
+dias_disponibles = sorted(
+    pd.to_datetime(sp500_precio_sesion.index).normalize().unique()
+)
+dias_series = pd.Series(dias_disponibles)
+
+# ID del modelo fijo
+ranking_id = 15
+
+# Extraigo limites globales desde df_resultado
+df_res = resultados_historicos["df_resultado"].copy()
+df_res["Date"] = pd.to_datetime(df_res["Date"])
+
+fecha_entrada_global = df_res["Date"].iloc[0].normalize()
+fecha_final_global = df_res["Date"].iloc[-1].normalize()
+
+# Buscar los +2 sesisones solo para el cierre global
+idx_actual = dias_series[dias_series == fecha_final_global].index
+
+if len(idx_actual) > 0:
+    fecha_salida_global = dias_series.iloc[idx_actual[0] + 2].normalize()
+
+    # Extraigo el ultimo dia registrado para train y validarion
+    ultimo_dia_train = (
+        df_res[df_res["dataset"] == "train"]["Date"].iloc[-1].normalize()
+    )
+    ultimo_dia_val = (
+        df_res[df_res["dataset"] == "validation"]["Date"].iloc[-1].normalize()
+    )
+
+    # Filtro y prepararo el df_balance
+    df_balance = resultados_historicos["df_balance"].copy()
+    df_balance["fecha"] = pd.to_datetime(df_balance["fecha"]).dt.normalize()
+
+    # Filtro global unico (con los +2 sesiones incluidos al final)
+    periodo_global = df_balance[
+        (df_balance["fecha"] >= fecha_entrada_global)
+        & (df_balance["fecha"] <= fecha_salida_global)
+    ].sort_values("fecha").reset_index(drop=True)
+
+    if len(periodo_global) > 1:
+        periodo_global["ret_diario_log"] = np.log(
+            periodo_global["equity_total"]
+            / periodo_global["equity_total"].shift(1)
+        )
+
+        # Segmento el rango total en 3 subsets para train, valid y test
+        # Train: Desde el inicio hasta su ultima fecha
+        df_train = periodo_global[periodo_global["fecha"] <= ultimo_dia_train]
+
+        # Validation: Desde el dia siguiente de Train hasta su ultima fecha
+        df_val = periodo_global[
+            (periodo_global["fecha"] > ultimo_dia_train)
+            & (periodo_global["fecha"] <= ultimo_dia_val)
+        ]
+
+        # Test: Desde el dia siguiente de Validation hasta el final (+2 sesiones)
+        df_test = periodo_global[periodo_global["fecha"] > ultimo_dia_val]
+
+        escenarios = [
+            {"tipo": "Global", "df_tramo": periodo_global, "es_sub": False},
+            {"tipo": "Train", "df_tramo": df_train, "es_sub": True},
+            {"tipo": "Validation", "df_tramo": df_val, "es_sub": True},
+            {"tipo": "Test", "df_tramo": df_test, "es_sub": True},
+        ]
+
+        # Calculo las metricas por tramos de dataset
+        for esc in escenarios:
+            tipo_subconjunto = esc["tipo"]
+            df_tramo = esc["df_tramo"].copy()
+
+            if len(df_tramo) <= 1:
+                continue
+
+            num_dias_mercado = (
+                len(df_tramo) if esc["es_sub"] else len(df_tramo) - 1
+            )
+            fraccion_ano_bursatil = num_dias_mercado / 252
+
+            if fraccion_ano_bursatil <= 0:
+                continue
+
+            # Calculo las metricas sobre el tramo correspondiente
+            rent_total_log = df_tramo["ret_diario_log"].sum()
+            rent_anualizada = rent_total_log / fraccion_ano_bursatil
+
+            vol_diaria = df_tramo["ret_diario_log"].std()
+            vol_anualizada = vol_diaria * np.sqrt(252)
+
+            sharpe_anualizado = (
+                (rent_anualizada / vol_anualizada) if vol_anualizada > 0 else 0
+            )
+
+            picos = df_tramo["equity_total"].cummax()
+            drawdowns = (df_tramo["equity_total"] - picos) / picos
+            max_drawdown = drawdowns.min()
+
+            ret_negativos = df_tramo["ret_diario_log"][
+                df_tramo["ret_diario_log"] < 0
+            ]
+            vol_downside_anualizada = (
+                ret_negativos.std() * np.sqrt(252)
+                if len(ret_negativos) > 0
+                else 0
+            )
+            sortino_anualizado = (
+                (rent_anualizada / vol_downside_anualizada)
+                if vol_downside_anualizada > 0
+                else 0
+            )
+
+            calmar_ratio = (
+                (rent_anualizada / abs(max_drawdown)) if max_drawdown != 0 else 0
+            )
+
+            dias_ganadores = df_tramo["ret_diario_log"] > 0
+            dias_perdedores = df_tramo["ret_diario_log"] < 0
+            win_rate = (
+                dias_ganadores.sum() / num_dias_mercado
+                if num_dias_mercado > 0
+                else 0
+            )
+
+            avg_ganancia = df_tramo.loc[dias_ganadores, "ret_diario_log"].mean()
+            avg_perdida = df_tramo.loc[dias_perdedores, "ret_diario_log"].mean()
+            pl_ratio = (
+                abs(avg_ganancia / avg_perdida)
+                if (not pd.isna(avg_perdida) and avg_perdida != 0)
+                else 0
+            )
+
+            en_drawdown = df_tramo["equity_total"] < picos
+            racha_drawdown = en_drawdown.groupby(
+                (~en_drawdown).cumsum()
+            ).cumsum()
+            max_duracion_drawdown = (
+                racha_drawdown.max() if not racha_drawdown.empty else 0
+            )
+
+            capital_inicial_est = df_tramo["equity_total"].iloc[0]
+
+            registro = {
+                "Ranking Modelo": ranking_id,  
+                "Subconjunto": tipo_subconjunto,
+                "Capital Inicial": capital_inicial_est,
+                "Fecha Inicio": df_tramo["fecha"].iloc[0].strftime("%Y-%m-%d"),
+                "Fecha Fin": df_tramo["fecha"].iloc[-1].strftime("%Y-%m-%d"),
+                "Días Activos": num_dias_mercado,
+                "Frac. Año Evaluada": round(fraccion_ano_bursatil, 4),
+                "Rentabilidad": f"{rent_anualizada:.4%}",
+                "Volatilidad": f"{vol_anualizada:.4%}",
+                "Ratio Sharpe": f"{sharpe_anualizado:.4f}",
+                "Ratio Sortino": f"{sortino_anualizado:.4f}",
+                "Ratio Calmar": f"{calmar_ratio:.4f}",
+                "Máx. Drawdown": f"{max_drawdown:.4%}",
+                "Máx. Duración Drawdown": int(max_duracion_drawdown),
+                "% Dias Ganadores": f"{win_rate:.2%}",
+                "Ratio G/P Diario": f"{pl_ratio:.2f}",
+            }
+
+            resultados_metricas_historicas.append(registro)
+
+# Creo el df unificado las metricas globales y por cada dataset
+metricas_historicas = pd.DataFrame(resultados_metricas_historicas)
+
+# Uso la columna 'Subconjunto' como los nombres de las columnas en la transposición
+metricas_historicas_t = metricas_historicas.set_index("Subconjunto").T
+
+# Paso el antiguo indice
+metricas_historicas_vertical = metricas_historicas_t.reset_index()
+metricas_historicas_vertical = metricas_historicas_vertical.rename(
+    columns={"index": "Métrica"}
+)
+
+print(f"\nSe calculos correctamente las metricas para el historico, tiene el shape sigueinte: {metricas_historicas_vertical.shape}")
+
+
 
 
 
